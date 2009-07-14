@@ -104,7 +104,7 @@ int main(int argc, char **argv)
 	 You have to define a template set with the ID 12345 before the exporting process starts
 
 	 The template shall contain the following fields:
-	 # |  IPFIX name of field      |  IPFIX field ID | length of associated datatype
+	 # |  IPFIX information element|  IPFIX field ID | length of associated datatype
 	 -------------------------------------------------------------------------------
 	 1 |  sourceAddressV4          |   8             | 4
 	 2 |  destinationAddressV4     |   12            | 4
@@ -113,9 +113,6 @@ int main(int argc, char **argv)
 	 5 |  deltaOctetCount          |   1             | 8
 	 6 |  deltaPacketCount         |   2             | 8
 
-	 FIXME - ???
-	 As none of these fields is vendor specific, the length of the template fields is 6*4 bytes.
-         FIXME
 	 */  
 	uint16_t my_template_id = 12345;
 	uint16_t my_n_template_id = htons(my_template_id);
@@ -136,7 +133,7 @@ int main(int argc, char **argv)
 	 template_id: the template ID chosen beforehand
 	 type: the IPFIX field ID for this entry
 	 length: sizeof() datatype
-	 enterprise: FIXME ???
+	 enterprise: always zero as we use standard information elements
 	 */
 	ret=ipfix_put_template_field(my_exporter, my_template_id, 8, 4, 0);
 	ret=ipfix_put_template_field(my_exporter, my_template_id, 12, 4, 0);
@@ -248,18 +245,10 @@ int main(int argc, char **argv)
 				   has to remain valid till ipfix_send() is called */
 				meter_process_gimme_data2(&my_meter_data[i*2+1]);
 
-				ipfix_put_data_field(my_exporter, &(my_meter_data[i*2+1].ip_src_addr), 4);
-				printf("main:   (*(*my_exporter).data_sendbuffer).current %i\n", my_exporter->data_sendbuffer->current);
-				ipfix_put_data_field(my_exporter, &(my_meter_data[i*2+1].ip_dst_addr), 4);
-				printf("main:   (*(*my_exporter).data_sendbuffer).current %i\n", my_exporter->data_sendbuffer->current);
-				ipfix_put_data_field(my_exporter, &(my_meter_data[i*2+1].src_port), 2);
-				printf("main:   (*(*my_exporter).data_sendbuffer).current %i\n", my_exporter->data_sendbuffer->current);
-				ipfix_put_data_field(my_exporter, &(my_meter_data[i*2+1].dst_port), 2);
-				printf("main:   (*(*my_exporter).data_sendbuffer).current %i\n", my_exporter->data_sendbuffer->current);
-				ipfix_put_data_field(my_exporter, &(my_meter_data[i*2+1].byte_count), 8);
-				printf("main:   (*(*my_exporter).data_sendbuffer).current %i\n", my_exporter->data_sendbuffer->current);
-				ipfix_put_data_field(my_exporter, &(my_meter_data[i*2+1].packet_count), 8);
-				printf("main:   (*(*my_exporter).data_sendbuffer).current %i\n", my_exporter->data_sendbuffer->current);
+				/* We can write a complete record in one go because the meter_data struct corresponds to the template.
+				 * This possibility is handy and increases performance.
+				 */
+				ipfix_put_data_field(my_exporter, &my_meter_data[i*2+1], sizeof(meter_data));
 
 				/* finish the data-set 
 				   remarks: 
