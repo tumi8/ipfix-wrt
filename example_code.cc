@@ -36,7 +36,7 @@ int meter_process_gimme_data(meter_data *mdat)
 {
 	mdat->ip_src_addr = htonl(0x01020304);	// 1.2.3.4
 	mdat->ip_dst_addr = htonl(0x02040608);	// 2.4.6.8
-	mdat->src_port = htons(12);
+	mdat->src_port = htons(12); //65384
 	mdat->dst_port = htons(13);
 	mdat->byte_count = htonll(1567490);
 	mdat->packet_count = htonll(42);
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
 	ret=ipfix_start_template_set(my_exporter, my_template_id, 6);
 
 	/*
-	 Add fields to the exporter.
+	 Add fields to the exporter.type
 
 	 exporter: the exporter
 	 template_id: the template ID chosen beforehand
