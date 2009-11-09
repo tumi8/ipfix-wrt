@@ -46,23 +46,13 @@ typedef struct {
 void transform_int(char* input, void* buffer, transform_rule* rule){
 	int i = atoi(input);
 	(*(int*)buffer) = i;
-    // der Int-Wert soll in der Adresse gespeichert werden, wo der Zeiger zeigt..
-	//(int*)buffer -> es muss angegeben werden, was für Daten in dem Buffer gespeichert werden
-	//je nachden wo der Zeiger zeigt (offset) wird dort der Int Wert gespeichert
-}
-void transform_string(char* input, void* buffer, transform_rule* rule){
-	char* c = input;
-	//(*(char*)buffer) = &c;
-    // der Int-Wert soll in der Adresse gespeichert werden, wo der Zeiger zeigt..
-	//(int*)buffer -> es muss angegeben werden, was für Daten in dem Buffer gespeichert werden
-	//je nachden wo der Zeiger zeigt (offset) wird dort der Int Wert gespeichert
 }
 
 transform_rule rule_ip_source = {4,&transform_int,}; //Transformiert in 4 byte int per atoi
 transform_rule rule_ignore = {0,0,0,0}; //Ignoriert diesen wert
 
-//transform_rule rule_string = {1,&transform_string};
-//transform_rule rule_ip = {1,&transform_ip};
+
+//transform_rule rule_dst_ip = {1,&transform_dst_ip};
 
 /******* IMPLEMENTIERTE REGELN ENDE ******/
 

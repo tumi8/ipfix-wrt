@@ -396,5 +396,7 @@ ipv4     2 tcp      6 38 TIME_WAIT src=192.168.1.132 dst=67.228.49.230 sport=340
 
 ipv4     2 udp      17 52 src=192.168.1.132 dst=196.217.211.192 sport=50440 dport=41816 packets=1 bytes=164 src=196.217.211.192 dst=10.149.36.57 sport=41816 dport=50440 packets=1 bytes=48 mark=0 asdfuse=1
 
+ipv4     2 udp      17 52 src=192.168.1.132 dst=196.217.211.192 sport=50440 dport=41816 packets=1 bytes=164 src=196.217.211.192 dst=10.149.36.57 sport=41816 dport=50440 packets=1 bytes=48 mark=0 asdfuse=1
+
 
 
