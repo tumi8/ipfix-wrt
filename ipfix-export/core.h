@@ -22,10 +22,11 @@
 
 //Variablen für die größe der einzelnen sendefenster/buffer
 #define SEND_BUFFER_SIZE 1024
+#define SEND_BUFFER_SIZE 1024
+#define SEND_CONF_BUFFER_SIZE 1024
 #define MATCH_BUFFER_SIZE 15
 #define MAX_LINE_LENGTH 512
 #define MY_SOURCE_ID 70538
-
 
 /*
  * Das zentrale rule struct beschreibt die Regel zur Umwandlung einer Capturing
@@ -38,7 +39,7 @@
  * Dabei ist zu beachten, dass die funktion nicht mehr bytes schreiben sollte, als
  * im bytecount angegeben sind.
  */
-
+typedef int boolean;
 
 typedef struct tr_rule {
 	uint16_t bytecount;

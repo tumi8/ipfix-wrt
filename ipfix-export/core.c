@@ -66,8 +66,6 @@ void rules_to_template(uint16_t template_n_id,transform_rule* rules, int num_rul
 		ipfix_put_template_field(send_exporter, template_n_id, rules[i].ie_id, rules[i].bytecount, rules[i].enterprise_id);
 	}
 	ipfix_end_template_set(send_exporter, template_n_id);
-
-
 }
 /*
  * Wendet eine regel auf einen inputstring an
@@ -194,6 +192,22 @@ void file_to_ipfix(char* filename,regex_t* regEx,transform_rule* rules, int num_
 	fclose(fp);
 }
 
+
+void config_file_to_ipfix(char* config_name){
+
+	//hier eine funktion die zurückgibt wieviele proc Dateien darin enthalten sind
+	char* send_all_buffer[SEND_CONF_BUFFER_SIZE ];
+
+	/*if(!regexec(&regex_empty_line,line,2,config_buffer,0)){
+			return 0;
+		}
+	if(!regexec(&regex_comment,line,2,config_buffer,0)){
+			if(line[config_buffer[1].rm_so] == '#'){
+				return 0;
+			}
+		} */
+}
+
 /**
  * Test main methode
  */
@@ -228,8 +242,6 @@ int main(int argc, char **argv)
 //	transform_rule ex_rules[10];
 
 	transform_rule ex_rules [5] = {rule_ignore,rule_src_ip,rule_src_ip,rule_ignore,rule_src_ip};
-
-
 	//Templates erstellen
 	rules_to_template(12345,ex_rules,4);
 	//Testen mit test file

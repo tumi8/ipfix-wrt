@@ -9,12 +9,27 @@
 #define CONFIG_FILE_H_
 
 #include "core.h"
+#include "list.h"
 
-typedef struct {
-	char* proc_file;
+#define SOURCE_TYPE_FILE 0
+#define SOURCE_TYPE_COMMAND 1
+
+typedef struct src_d {
+	char* source_path;
 	char* reg_exp;
-	transform_rule* rules;
 	int rule_count;
-} proc_file_descriptor;
+	int source_type;
+	list* rules;
+} source_descriptor;
+
+
+typedef struct rec_d{
+	list* sources;
+	boolean is_multirecord;
+} record_descriptor;
+
+typedef struct{
+	list* record_descriptors;
+} config_file_descriptor;
 
 #endif /* CONFIG_FILE_H_ */

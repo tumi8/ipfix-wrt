@@ -7,22 +7,65 @@
 
 #include "config_file.h"
 #include "transform_rules.h"
+#include "core.h"
+#include "list.h"
 
+#define PARSE_MODE_RECORD 0
+#define PARSE_MODE_SOURCE_DESCR 1
+#define PARSE_MODE_RULE 2
+#define PARSE_MODE_SOURCE_OR_RECORD 3
 
 int config_regex_inited = 0;
 int num_rule_lines = 0;
+int number_of_proc_file = 0;
+int parse_mode = PARSE_MODE_RECORD;
 regex_t regex_empty_line;
 regex_t regex_comment;
 regex_t regex_selector;
+regex_t regex_record;
 regex_t regex_file;
 regex_t regex_rule;
-proc_file_descriptor* current_descriptor;
+config_file_descriptor* current_config_file;
+record_descriptor* current_record;
+source_descriptor* current_source;
 regmatch_t config_buffer[5];
+
+//Constructor for config file descriptor
+config_file_descriptor* create_config_file_descriptor(){
+	current_config_file = (config_file_descriptor*) malloc(sizeof(config_file_descriptor));
+	current_config_file->record_descriptors = list_create();
+	return current_config_file;
+}
+
+//Constructor for record descriptor
+record_descriptor* create_record_descriptor(){
+	current_record = (record_descriptor*) malloc(sizeof(record_descriptor));
+	current_record->sources = list_create();
+	list_insert(current_config_file->record_descriptors,current_record);
+	return current_record;
+}
+
+//Constructor for source_descriptor
+source_descriptor* create_source_descriptor(){
+	current_source = (source_descriptor*) malloc(sizeof(source_descriptor));
+	current_source->rules = list_create();
+	list_insert(current_record->sources,current_source);
+	return current_source;
+}
+
+//Constructor for rule
+transform_rule* create_transform_rule(){
+	transform_rule* tr = (transform_rule*) malloc(sizeof(transform_rule));;
+	list_insert(current_source->rules,tr);
+	return tr;
+}
+
 
 void init_config_regex(){
 	regcomp(&regex_comment,"^\\s*(\\#?).*$",REG_EXTENDED);
 	regcomp(&regex_empty_line,"^\\s*$",REG_EXTENDED);
-	regcomp(&regex_selector,"^\\s*(\\w+)\\:.*$",REG_EXTENDED);
+	regcomp(&regex_record,"^\\s*(RECORD|MULTIRECORD)\\s*$",REG_EXTENDED);
+	regcomp(&regex_selector,"^\\s*(FILE|COMMAND)\\:.*$",REG_EXTENDED); //(\\w+)
 	regcomp(&regex_file,"^\\s*(\\w+)\\s*,\\s*([0-9]+)\\s*,\\s*(.*?)\\s*$",REG_EXTENDED);
 	regcomp(&regex_rule,"^\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*$",REG_EXTENDED);
 	config_regex_inited = 1;
@@ -48,25 +91,99 @@ unsigned int extract_int_from_regmatch(regmatch_t* match, char* input){
 
 int process_rule_line(char* line, int in_line){
 
-	if(!regexec(&regex_rule,line,5,config_buffer,0)){
-		transform_rule* tf = &current_descriptor->rules[current_descriptor->rule_count-num_rule_lines];
-		tf->bytecount = (uint16_t)extract_int_from_regmatch(&config_buffer[1],line);
-		tf->transform = get_rule_by_index(extract_int_from_regmatch(&config_buffer[2],line));
-		tf->ie_id = extract_int_from_regmatch(&config_buffer[3],line);
-		tf->enterprise_id = extract_int_from_regmatch(&config_buffer[4],line);
-		printf("Found rule line:\nBytecount: %d\nTransform: %d\nIE: %d\nEnterprise id: %d\n",tf->bytecount,extract_int_from_regmatch(&config_buffer[2],line),tf->ie_id,tf->enterprise_id);
-
-	} else {
+	if(regexec(&regex_rule,line,5,config_buffer,0)){
 		printf("Unrecognized rule line (line %d)!", in_line);
+		exit(-1);
 	}
 
-	num_rule_lines--;
+	transform_rule* tr = create_transform_rule();
+	tr->bytecount = (uint16_t)extract_int_from_regmatch(&config_buffer[1],line);
+	tr->transform = get_rule_by_index(extract_int_from_regmatch(&config_buffer[2],line));
+	tr->ie_id = extract_int_from_regmatch(&config_buffer[3],line);
+	tr->enterprise_id = extract_int_from_regmatch(&config_buffer[4],line);
+	printf("Found rule line:\nBytecount: %d\nTransform: %d\nIE: %d\nEnterprise id: %d\n",tr->bytecount,extract_int_from_regmatch(&config_buffer[2],line),tr->ie_id,tr->enterprise_id);
+
 	return 1;
+
+}
+int process_source_line(char* line, int in_line){
+
+	if(regexec(&regex_selector,line,2,config_buffer,0)){
+		printf("Line %d in config file is malformed (not starting with a type selector):\n%s\n",in_line,line);
+		exit(-1);
+	}
+
+	//Create new source descriptor
+	create_source_descriptor();
+
+	line[config_buffer[1].rm_eo]='\0'; //0 terminate
+
+	if(!strcasecmp(&line[config_buffer[1].rm_so],"FILE")){
+		current_source->source_type = SOURCE_TYPE_FILE;
+	} else if(!strcasecmp(&line[config_buffer[1].rm_so],"COMMAND")){
+		current_source->source_type = SOURCE_TYPE_COMMAND;
+	} else {
+		printf("Unrecognized type selector \"%s\" in line %d\n",&line[config_buffer[1].rm_so],in_line);
+		exit(-1);
+	}
+
+	//store line with config data in dataline
+	char* dataline = &line[config_buffer[1].rm_eo+1];
+	if(regexec(&regex_file,dataline,4,config_buffer,0)){
+		printf("Unrecognized config line (Line %d):\n%s",in_line,dataline);
+		exit(-1);
+	}
+
+	//extract file name
+	current_source->source_path = extract_string_from_regmatch(&config_buffer[1],dataline);
+
+	//extract rule count
+	current_source->rule_count = extract_int_from_regmatch(&config_buffer[2],dataline);
+
+	//extract pattern
+	current_source->reg_exp = extract_string_from_regmatch(&config_buffer[3],dataline);
+
+	printf("%d,%d",config_buffer[3].rm_so,config_buffer[3].rm_eo);
+	//Set num_rule_lines so the next lines get parsed as rule lines
+	num_rule_lines = current_source->rules->size;
+
+
+	printf("Found proc line:\nFile Name: %s\nRule count: %d\nPattern: <%s>\n",current_source->source_path,current_source->rule_count,current_source->reg_exp);
+	number_of_proc_file++;
+
+	//Go into rule mode
+	parse_mode = PARSE_MODE_RULE;
+
+	return 1;
+}
+
+int process_record_line(char* line, int in_line){
+
+	if(regexec(&regex_record,line,2,config_buffer,0)){
+		printf("Record line %d in config file is malformed (not starting with a record type selector):\n%s\n",in_line,line);
+		exit(-1);
+	}
+
+	//Create new record descriptor
+	create_record_descriptor();
+
+	line[config_buffer[1].rm_eo]='\0'; //0 terminieren
+
+	if(!strcasecmp(&line[config_buffer[1].rm_so],"RECORD")){
+		current_record->is_multirecord = 0;
+
+	} else if(!strcasecmp(&line[config_buffer[1].rm_so],"MULTIRECORD")) {
+		current_record->is_multirecord = 1;
+	} else {
+		printf("Unrecognized record type selector \"%s\" in line %d\n",&line[config_buffer[1].rm_so],in_line);
+		exit(-1);
+	}
+
+	parse_mode = PARSE_MODE_SOURCE_DESCR;
 
 }
 
 int process_config_line(char* line, int in_line){
-
 
 	//Skip empty lines
 	if(!regexec(&regex_empty_line,line,2,config_buffer,0)){
@@ -80,58 +197,19 @@ int process_config_line(char* line, int in_line){
 		}
 	}
 
+	if(parse_mode == PARSE_MODE_RECORD){
+		process_record_line(line, in_line);
+	}else if(parse_mode == PARSE_MODE_SOURCE_DESCR){
+		process_source_line(line, in_line);
+	}else if(parse_mode == PARSE_MODE_RULE){
+		process_rule_line(line, in_line);
+	}
+
 	//Still rule lines to process? -> do it
-	if(num_rule_lines > 0){
-		return process_rule_line(line,in_line);
-	}
+//	if(num_rule_lines > 0){
+//		return process_rule_line(line,in_line);
+	//} --> Das kann hier nicht mehr vorkommen, da alles gekapselt
 	//Allocate memory for the pattern
-
-	if(!regexec(&regex_selector,line,2,config_buffer,0)){
-
-		line[config_buffer[1].rm_eo]='\0'; //0 terminieren
-
-		if(!strcasecmp(&line[config_buffer[1].rm_so],"FILE")){
-
-			char* dataline = &line[config_buffer[1].rm_eo+1];
-			if(!regexec(&regex_file,dataline,4,config_buffer,0)){
-				current_descriptor = (proc_file_descriptor*) malloc(sizeof(proc_file_descriptor));
-
-				//Extract file name
-				current_descriptor->proc_file = extract_string_from_regmatch(&config_buffer[1],dataline);
-
-				//Extract rule count
-				current_descriptor->rule_count = extract_int_from_regmatch(&config_buffer[2],dataline);
-
-				//Extract pattern
-				current_descriptor->reg_exp = extract_string_from_regmatch(&config_buffer[3],dataline);
-
-				printf("%d,%d",config_buffer[3].rm_so,config_buffer[3].rm_eo);
-				//Set num_rule_lines so the next lines get parsed as rule lines
-				num_rule_lines = current_descriptor->rule_count;
-
-				//Allocate a rule array
-				current_descriptor->rules = (transform_rule*) malloc(sizeof(transform_rule)*num_rule_lines);
-
-				printf("Found proc line:\nFile Name: %s\nRule count: %d\nPattern: <%s>\n",current_descriptor->proc_file,current_descriptor->rule_count,current_descriptor->reg_exp);
-
-			} else {
-				printf("Unrecognized config line (Line %d):\n%s",in_line,dataline);
-				exit(-1);
-			}
-
-
-		} else {
-			printf("Unrecognized type selector \"%s\" in line %d\n",&line[config_buffer[1].rm_so],in_line);
-			exit(-1);
-		}
-
-	}else{
-		printf("Line %d in config file is malformed (not starting with a type selector):\n%s\n",in_line,line);
-		exit(-1);
-	}
-
-	return 1;
-
 }
 
 void read_config(char* filename){
