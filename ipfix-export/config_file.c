@@ -21,8 +21,8 @@ int number_of_proc_file = 0;
 int parse_mode = PARSE_MODE_RECORD;
 regex_t regex_empty_line;
 regex_t regex_comment;
-regex_t regex_selector;
-regex_t regex_record;
+regex_t regex_source_selector;
+regex_t regex_record_selector;
 regex_t regex_file;
 regex_t regex_rule;
 config_file_descriptor* current_config_file;
@@ -64,8 +64,8 @@ transform_rule* create_transform_rule(){
 void init_config_regex(){
 	regcomp(&regex_comment,"^\\s*(\\#?).*$",REG_EXTENDED);
 	regcomp(&regex_empty_line,"^\\s*$",REG_EXTENDED);
-	regcomp(&regex_record,"^\\s*(RECORD|MULTIRECORD)\\s*$",REG_EXTENDED);
-	regcomp(&regex_selector,"^\\s*(FILE|COMMAND)\\:.*$",REG_EXTENDED); //(\\w+)
+	regcomp(&regex_record_selector,"^\\s*(RECORD|MULTIRECORD)\\s*$",REG_EXTENDED);
+	regcomp(&regex_source_selector,"^\\s*(FILE|COMMAND)\\:.*$",REG_EXTENDED); //(\\w+)
 	regcomp(&regex_file,"^\\s*(\\w+)\\s*,\\s*([0-9]+)\\s*,\\s*(.*?)\\s*$",REG_EXTENDED);
 	regcomp(&regex_rule,"^\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*$",REG_EXTENDED);
 	config_regex_inited = 1;
@@ -103,12 +103,20 @@ int process_rule_line(char* line, int in_line){
 	tr->enterprise_id = extract_int_from_regmatch(&config_buffer[4],line);
 	printf("Found rule line:\nBytecount: %d\nTransform: %d\nIE: %d\nEnterprise id: %d\n",tr->bytecount,extract_int_from_regmatch(&config_buffer[2],line),tr->ie_id,tr->enterprise_id);
 
+	//decrease number of rule lines to parse.
+	//If no more rule lines are to be parsed, the parsers expects
+	//a new source descriptor or record descriptor in the next line
+	num_rule_lines--;
+	if(num_rule_lines<=0){
+		parse_mode = PARSE_MODE_SOURCE_OR_RECORD;
+	}
+
 	return 1;
 
 }
 int process_source_line(char* line, int in_line){
 
-	if(regexec(&regex_selector,line,2,config_buffer,0)){
+	if(regexec(&regex_source_selector,line,2,config_buffer,0)){
 		printf("Line %d in config file is malformed (not starting with a type selector):\n%s\n",in_line,line);
 		exit(-1);
 	}
@@ -159,7 +167,7 @@ int process_source_line(char* line, int in_line){
 
 int process_record_line(char* line, int in_line){
 
-	if(regexec(&regex_record,line,2,config_buffer,0)){
+	if(regexec(&regex_record_selector,line,2,config_buffer,0)){
 		printf("Record line %d in config file is malformed (not starting with a record type selector):\n%s\n",in_line,line);
 		exit(-1);
 	}
@@ -180,6 +188,7 @@ int process_record_line(char* line, int in_line){
 	}
 
 	parse_mode = PARSE_MODE_SOURCE_DESCR;
+	return 1;
 
 }
 
@@ -203,20 +212,29 @@ int process_config_line(char* line, int in_line){
 		process_source_line(line, in_line);
 	}else if(parse_mode == PARSE_MODE_RULE){
 		process_rule_line(line, in_line);
+	}else if(parse_mode == PARSE_MODE_SOURCE_OR_RECORD){
+		if(!regexec(&regex_record_selector,line,2,config_buffer,0)){
+			process_record_line(line, in_line);
+		} else if(!regexec(&regex_source_selector,line,2,config_buffer,0)){
+			process_source_line(line, in_line);
+		} else {
+			printf("Expecting record selector or source selector in line %d\n",in_line);
+			exit(-1);
+		}
 	}
 
-	//Still rule lines to process? -> do it
-//	if(num_rule_lines > 0){
-//		return process_rule_line(line,in_line);
-	//} --> Das kann hier nicht mehr vorkommen, da alles gekapselt
-	//Allocate memory for the pattern
+	return 1;
 }
 
-void read_config(char* filename){
+config_file_descriptor* read_config(char* filename){
 
+	//Init config regexes if necessary
 	if(!config_regex_inited){
 		init_config_regex();
 	}
+
+	//Create new config descriptor
+	create_config_file_descriptor();
 
 	//File öffnen und checken obs alles geklappt hat
 	FILE* fp = fopen(filename, "r");
@@ -227,6 +245,8 @@ void read_config(char* filename){
 
 	int in_line;
 	char curr_line[MAX_LINE_LENGTH];
+
+	//Main loop over all lines in the config file
 	for (in_line = 1; fgets(curr_line, MAX_LINE_LENGTH, fp) != NULL; in_line++){
 		process_config_line(curr_line,in_line);
 	}
@@ -236,5 +256,7 @@ void read_config(char* filename){
 		fprintf(stderr, "Reached end of file, but still %d rules missing!", num_rule_lines);
 		exit(-1);
 	}
+
+	return current_config_file;
 }
 

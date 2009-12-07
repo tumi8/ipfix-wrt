@@ -32,4 +32,6 @@ typedef struct{
 	list* record_descriptors;
 } config_file_descriptor;
 
+config_file_descriptor* read_config(char* filename);
+
 #endif /* CONFIG_FILE_H_ */
