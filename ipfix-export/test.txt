@@ -1,7 +1,18 @@
 #test
-FILE: testproctxt, 3, (\w+)\s(\w+)\s(\w+)
-		# test
-		
+RECORD
+	FILE: testproctxt, 3, (\w+)\s(\w+)\s(\w+)
+		# test		
+		4, 5, 6, 7
+		1, 2, 3, 4
+		8, 9, 10, 11
+	FILE: testproctxt, 3, (\w+)\s(\w+)\s(\w+)
+		# test		
+		4, 5, 6, 7
+		1, 2, 3, 4
+		8, 9, 10, 11
+MULTIRECORD
+	FILE: testproctxt, 3, (\w+)\s(\w+)\s(\w+)
+		# test		
 		4, 5, 6, 7
 		1, 2, 3, 4
 		8, 9, 10, 11

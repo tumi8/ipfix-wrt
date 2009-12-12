@@ -92,7 +92,7 @@ unsigned int extract_int_from_regmatch(regmatch_t* match, char* input){
 int process_rule_line(char* line, int in_line){
 
 	if(regexec(&regex_rule,line,5,config_buffer,0)){
-		printf("Unrecognized rule line (line %d)!", in_line);
+		printf("Malformed line (line %d)!\nExpecting rule line, but found this line:\n%s\n", in_line,line);
 		exit(-1);
 	}
 
@@ -101,7 +101,12 @@ int process_rule_line(char* line, int in_line){
 	tr->transform = get_rule_by_index(extract_int_from_regmatch(&config_buffer[2],line));
 	tr->ie_id = extract_int_from_regmatch(&config_buffer[3],line);
 	tr->enterprise_id = extract_int_from_regmatch(&config_buffer[4],line);
-	printf("Found rule line:\nBytecount: %d\nTransform: %d\nIE: %d\nEnterprise id: %d\n",tr->bytecount,extract_int_from_regmatch(&config_buffer[2],line),tr->ie_id,tr->enterprise_id);
+	/*printf("Found rule line (%d rule lines expected afterwards):\nBytecount: %d\nTransform: %d\nIE: %d\nEnterprise id: %d\n"
+				,num_rule_lines-1
+				,tr->bytecount
+				,extract_int_from_regmatch(&config_buffer[2],line)
+				,tr->ie_id
+				,tr->enterprise_id);*/
 
 	//decrease number of rule lines to parse.
 	//If no more rule lines are to be parsed, the parsers expects
@@ -117,7 +122,7 @@ int process_rule_line(char* line, int in_line){
 int process_source_line(char* line, int in_line){
 
 	if(regexec(&regex_source_selector,line,2,config_buffer,0)){
-		printf("Line %d in config file is malformed (not starting with a type selector):\n%s\n",in_line,line);
+		printf("Line %d in config file is malformed!\nParser expects a rule line that starts with a source type descriptor (e.g. \"FILE:\")\nThis line was found:\n%s\n",in_line,line);
 		exit(-1);
 	}
 
@@ -153,7 +158,7 @@ int process_source_line(char* line, int in_line){
 
 	printf("%d,%d",config_buffer[3].rm_so,config_buffer[3].rm_eo);
 	//Set num_rule_lines so the next lines get parsed as rule lines
-	num_rule_lines = current_source->rules->size;
+	num_rule_lines = current_source->rule_count;
 
 
 	printf("Found proc line:\nFile Name: %s\nRule count: %d\nPattern: <%s>\n",current_source->source_path,current_source->rule_count,current_source->reg_exp);
@@ -243,6 +248,9 @@ config_file_descriptor* read_config(char* filename){
 		exit(-1);
 	}
 
+	//Set parse mode to record (the parser first expects a record line)
+	parse_mode = PARSE_MODE_RECORD;
+
 	int in_line;
 	char curr_line[MAX_LINE_LENGTH];
 
@@ -253,10 +261,64 @@ config_file_descriptor* read_config(char* filename){
 	fclose(fp);
 
 	if(num_rule_lines>0){
-		fprintf(stderr, "Reached end of file, but still %d rules missing!", num_rule_lines);
+		fprintf(stderr, "Reached end of config file, but still %d rules missing for the last source!\n", num_rule_lines);
+		exit(-1);
+	}
+
+	if(current_config_file->record_descriptors->size==0){
+		fprintf(stderr, "Reached end of config file, but no record found (empty config?)\n");
+		exit(-1);
+	}
+
+	if(current_record->sources->size==0){
+		fprintf(stderr, "Reached end of config file, but the last record has no sources!\n");
 		exit(-1);
 	}
 
 	return current_config_file;
+}
+
+char indent_str [30];
+char* get_indent(int num_spaces){
+	indent_str[num_spaces] = '\0';
+	for(;num_spaces>0;num_spaces--){
+		indent_str[num_spaces-1] = ' ';
+	}
+	return indent_str;
+}
+
+void echo_config_file(config_file_descriptor* conf){
+	list_node* cur;
+	int indent = 0;
+	printf("Config file with %d records:\n", conf->record_descriptors->size);
+	indent = 2;
+	for(cur=conf->record_descriptors->first;cur!=NULL;cur=cur->next){
+		record_descriptor* curRecord = (record_descriptor*)cur->data;
+		printf("%s%sRecord with %i sources\n",
+				get_indent(indent),
+				(curRecord->is_multirecord?"Multi":""),
+				curRecord->sources->size);
+
+		//start echo sources
+		indent+=2;
+
+		list_node* cur2;
+
+		for(cur2=curRecord->sources->first;cur2!=NULL;cur2=cur2->next){
+			source_descriptor* curSource = (source_descriptor*)cur2->data;
+
+			printf("%sSource %s (type %d) with %d rules and pattern: %s\n",
+					get_indent(indent),
+					curSource->source_path,
+					curSource->source_type,
+					curSource->rule_count,
+					curSource->reg_exp);
+		}
+
+		indent-=2;
+		//end echo sources
+	}
+
+
 }
 

@@ -25,7 +25,7 @@ typedef struct src_d {
 
 typedef struct rec_d{
 	list* sources;
-	boolean is_multirecord;
+	int is_multirecord;
 } record_descriptor;
 
 typedef struct{
@@ -33,5 +33,6 @@ typedef struct{
 } config_file_descriptor;
 
 config_file_descriptor* read_config(char* filename);
+void echo_config_file(config_file_descriptor* conf);
 
 #endif /* CONFIG_FILE_H_ */

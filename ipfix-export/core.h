@@ -20,6 +20,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "config_file.h"
+
 //Variablen für die größe der einzelnen sendefenster/buffer
 #define SEND_BUFFER_SIZE 1024
 #define SEND_BUFFER_SIZE 1024

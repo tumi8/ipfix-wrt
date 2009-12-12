@@ -6,6 +6,7 @@
  */
 #include "core.h"
 
+
 char send_buffer[SEND_BUFFER_SIZE];
 regmatch_t match_buffer[MATCH_BUFFER_SIZE];
 int send_buffer_offset = 0;
@@ -213,7 +214,7 @@ void config_file_to_ipfix(char* config_name){
  */
 int main(int argc, char **argv)
 {
-	read_config("test.txt");
+	echo_config_file(read_config("test.txt"));
 	return 0;
 
 	int ret =0;
