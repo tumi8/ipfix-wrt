@@ -11,28 +11,10 @@
 #include "core.h"
 #include "list.h"
 
-#define SOURCE_TYPE_FILE 0
-#define SOURCE_TYPE_COMMAND 1
-
-typedef struct src_d {
-	char* source_path;
-	char* reg_exp;
-	int rule_count;
-	int source_type;
-	list* rules;
-} source_descriptor;
-
-
-typedef struct rec_d{
-	list* sources;
-	int is_multirecord;
-} record_descriptor;
-
-typedef struct{
-	list* record_descriptors;
-} config_file_descriptor;
 
 config_file_descriptor* read_config(char* filename);
+
+//debug function, echos the whole config tree
 void echo_config_file(config_file_descriptor* conf);
 
 #endif /* CONFIG_FILE_H_ */

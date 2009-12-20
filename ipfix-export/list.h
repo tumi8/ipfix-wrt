@@ -22,4 +22,5 @@ typedef struct {
 
 list_node* list_insert(list* list, void* data);
 list* list_create();
+
 #endif /* LIST_ */
