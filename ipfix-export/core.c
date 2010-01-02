@@ -9,12 +9,18 @@
 #include "ipfix_data.h"
 #include "config_file.h"
 
+/**
+ * Takes all collectors from config file <conf>
+ * and adds them to the exporter <exporter>
+ * by calling the appropriate ipfixlolib function.
+ */
+void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
+	list_node* cur;
 
-
-void mainLoop(int interval, config_file_descriptor* conf, ipfix_exporter* exporter){
-	while(1){
-		config_to_ipfix(exporter,conf);
-		sleep(interval);
+	for(cur = conf->collectors->first;cur!=NULL;cur=cur->next){
+		collector_descriptor* cur_descriptor = (collector_descriptor*)cur->data;
+		int ret = ipfix_add_collector(exporter, cur_descriptor->ip, cur_descriptor->port, UDP);
+		printf("Added collector %s:%d (return: %d)\n", cur_descriptor->ip,cur_descriptor->port,  ret);
 	}
 }
 
@@ -24,27 +30,31 @@ void mainLoop(int interval, config_file_descriptor* conf, ipfix_exporter* export
  */
 int main(int argc, char **argv)
 {
-	echo_config_file(read_config("test.txt"));
-	return 0;
-
-	int ret =0;
-	char *collector_ip = "127.0.0.1";
-	int collector_port = 1500;
-
+	//Read config file
+	config_file_descriptor* conf = read_config("test.txt");
+	echo_config_file(conf);
+	//Init exporter
 	ipfix_exporter* send_exporter;
-
-	//Init test exporter
-	ret=ipfix_init_exporter(MY_SOURCE_ID, &send_exporter);
+	int ret = ipfix_init_exporter(conf->observation_domain_id, &send_exporter);
 
 	if (ret != 0) {
 		fprintf(stderr, "ipfix_init_exporter failed!\n");
 		exit(-1);
 	}
 
-	//test collector hinzufügen
-	ret = ipfix_add_collector(send_exporter, collector_ip, collector_port, UDP);
-	printf("ipfix_add_collector returned %i\n", ret);
+	//Add collectors from config file
+	init_collectors(conf,send_exporter);
 
+	//Generate templates
+	generate_templates_from_config(send_exporter,conf);
+
+	//Periodically, send the configured datasets
+	while(1){
+		config_to_ipfix(send_exporter,conf);
+		sleep(conf->interval*1000);
+	}
+
+	//Dead code :)
 	return 0;
 }
 

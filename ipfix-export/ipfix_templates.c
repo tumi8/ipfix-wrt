@@ -12,8 +12,8 @@ int	get_template_field_count_from_record(record_descriptor* record){
 	int result = 0;
 
 	for(cur=record->sources->first;cur!=NULL;cur=cur->next){
-		source_descriptor* curSource = (source_descriptor*)cur->data;
-		result += curSource->rule_count;
+		source_descriptor* cur_source = (source_descriptor*)cur->data;
+		result += cur_source->rule_count;
 	}
 
 	return result;
@@ -32,15 +32,15 @@ void generate_template_from_record(ipfix_exporter* send_exporter, record_descrip
 	//Loop over all sources
 	list_node* cur;
 	for(cur=record->sources->first;cur!=NULL;cur=cur->next){
-		source_descriptor* curSource = (source_descriptor*)cur->data;
+		source_descriptor* cur_source = (source_descriptor*)cur->data;
 
 		//Loop over all rules
 		list_node* cur2;
-		for(cur2=curSource->rules->first;cur2!=NULL;cur2=cur2->next){
-			transform_rule* curRule = (transform_rule*)cur2->data;
+		for(cur2=cur_source->rules->first;cur2!=NULL;cur2=cur2->next){
+			transform_rule* cur_rule = (transform_rule*)cur2->data;
 
 			//build a template field from this rule
-			ipfix_put_template_field(send_exporter, record->template_id, curRule->ie_id, curRule->bytecount, curRule->enterprise_id);
+			ipfix_put_template_field(send_exporter, record->template_id, cur_rule->ie_id, cur_rule->bytecount, cur_rule->enterprise_id);
 		}
 
 	}

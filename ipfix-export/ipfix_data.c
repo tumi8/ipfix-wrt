@@ -16,8 +16,8 @@ int send_buffer_offset = 0;
 
 
 /*
- * Wendet eine regel auf einen inputstring an
- * Die Transformfunktion der Regel sollte(!) den String geeignet umwandeln und
+ * Wendet eine regel auf einen inputstring an // Apply a rule to one input string
+ * Die Transformfunktion der Regel sollte(!) den String geeignet umwandeln und // The transform funkction of the rule
  * ihn dann an die Position schreiben, die als zweiter Parameter übergeben wurde.
  * Danach schiebt apply_rule den offset um bytecount weiter, sodass der neue offset
  * wieder hinter den belegten Speicher im send_buffer zeigt.
@@ -43,8 +43,8 @@ void apply_rule(char* input,transform_rule* rule){
  * wendet das übergebene pattern <regEx> auf sie an
  * Die ersten <num_rules> matches werden mit den übergebenen <rules>
  * transformiert und in den globalen send_buffer geschrieben.
- * <rules> muss dabei ein array aus *transform_rules sein mit (mindestens) <num_rules> Einträgen
- * Jede rule aus dem array wird für eine Capturing Group des Patterns verwendet
+ * <rules> muss dabei eine Liste aus *transform_rules sein mit (mindestens) <num_rules> Nodes
+ * Jede rule aus der Liste wird für eine Capturing Group des Patterns verwendet
  * Soll eine Capturing Group gar nicht gesendet werden, muss einfach an der jeweiligen
  * Stelle im array eine Regel mit .bytecount==0 stehen
  *Die Funktion gibt true zurück, falls die Zeile gematcht werden konnte (Pattern traf zu)
@@ -179,14 +179,14 @@ void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
 	//Loop over all sources of this record
 	list_node* cur;
 	for(cur=record->sources->first;cur!=NULL;cur=cur->next){
-		source_descriptor* curSource = (source_descriptor*)cur->data;
+		source_descriptor* cur_source = (source_descriptor*)cur->data;
 
 		//Load the data from the source (for example a proc file)
-		char* input = load_data_from_source(curSource);
+		char* input = load_data_from_source(cur_source);
 
 		//Process the pattern matching, apply the transformation rules
 		//and write the result to send buffer
-		num_datasets = source_to_send_buffer(input, curSource, record->is_multirecord);
+		num_datasets = source_to_send_buffer(input, cur_source, record->is_multirecord);
 
 	}
 
@@ -199,7 +199,7 @@ void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
 void config_to_ipfix(ipfix_exporter* exporter,config_file_descriptor* config){
 	list_node* cur;
 	for(cur=config->record_descriptors->first;cur!=NULL;cur=cur->next){
-		record_descriptor* curRecord = (record_descriptor*)cur->data;
-		record_to_ipfix(exporter, curRecord);
+		record_descriptor* cur_record = (record_descriptor*)cur->data;
+		record_to_ipfix(exporter, cur_record);
 	}
 }

@@ -1,17 +1,22 @@
 #test
+COLLECTOR 1.2.3.4:23
+INTERVAL 40
 RECORD
-	FILE: testproctxt, 3, (\w+)\s(\w+)\s(\w+)
+	COMMAND test/d-sf, 3, (\w+)\s(\w+)\s(\w+)
 		# test		
 		4, 5, 6, 7
 		1, 2, 3, 4
 		8, 9, 10, 11
-	FILE: testproctxt, 3, (\w+)\s(\w+)\s(\w+)
+	COMMAND ls, 3, (\w+)\s(\w+)\s(\w+)
 		# test		
 		4, 5, 6, 7
 		1, 2, 3, 4
 		8, 9, 10, 11
+COLLECTOR 1.2.3.4:23532
+INTERVAL 60
+SOURCEID 13242
 MULTIRECORD
-	FILE: testproctxt, 3, (\w+)\s(\w+)\s(\w+)
+	COMMAND "ls -a", 3, (\w+)\s(\w+)\s(\w+)
 		# test		
 		4, 5, 6, 7
 		1, 2, 3, 4

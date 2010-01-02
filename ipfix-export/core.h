@@ -39,12 +39,18 @@
 // How long a line in the config file may be
 #define MAX_CONF_LINE_LENGTH 512
 
-//The source id of the exporter
-#define MY_SOURCE_ID 70539
+
+//The standard interval for sending datasets (in seconds)
+#define STANDARD_SEND_INTERVAL 30
+
+//The standard observation domain id of the exporter
+#define OBSERVATION_DOMAIN_STANDARD_ID 1
 
 //** The different source types **
 #define SOURCE_TYPE_FILE 0 		//A file
 #define SOURCE_TYPE_COMMAND 1	//A shell command
+
+
 
 /*
  * A descriptor for one source to read data from.
@@ -78,7 +84,15 @@ typedef struct rec_d{
  */
 typedef struct{
 	list* record_descriptors;
+	list* collectors;
+	int interval;
+	int observation_domain_id;
 } config_file_descriptor;
+
+typedef struct{
+	char* ip;
+	int port;
+} collector_descriptor;
 
 
 /*

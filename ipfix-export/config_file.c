@@ -10,15 +10,15 @@
 #include "core.h"
 #include "list.h"
 
-#define PARSE_MODE_RECORD 0
+#define PARSE_MODE_MAIN 0
 #define PARSE_MODE_SOURCE_DESCR 1
 #define PARSE_MODE_RULE 2
-#define PARSE_MODE_SOURCE_OR_RECORD 3
+#define PARSE_MODE_SOURCE_OR_MAIN 3
 
 int config_regex_inited = 0;
 int num_rule_lines = 0;
 int number_of_proc_file = 0;
-int parse_mode = PARSE_MODE_RECORD;
+int parse_mode = PARSE_MODE_MAIN;
 int current_default_template_id = 256;
 regex_t regex_empty_line;
 regex_t regex_comment;
@@ -26,6 +26,9 @@ regex_t regex_source_selector;
 regex_t regex_record_selector;
 regex_t regex_file;
 regex_t regex_rule;
+regex_t regex_collector;
+regex_t regex_interval;
+regex_t regex_odid;
 config_file_descriptor* current_config_file;
 record_descriptor* current_record;
 source_descriptor* current_source;
@@ -35,7 +38,18 @@ regmatch_t config_buffer[5];
 config_file_descriptor* create_config_file_descriptor(){
 	current_config_file = (config_file_descriptor*) malloc(sizeof(config_file_descriptor));
 	current_config_file->record_descriptors = list_create();
+	current_config_file->collectors = list_create();
+	current_config_file->interval = STANDARD_SEND_INTERVAL;
+	current_config_file->observation_domain_id = OBSERVATION_DOMAIN_STANDARD_ID;
 	return current_config_file;
+}
+
+collector_descriptor* create_collector_descriptor(char* ip, int port){
+	collector_descriptor* result = (collector_descriptor*) malloc(sizeof(collector_descriptor));
+	result->ip = ip;
+	result->port = port;
+	list_insert(current_config_file->collectors,result);
+	return result;
 }
 
 //Constructor for record descriptor
@@ -73,9 +87,12 @@ void init_config_regex(){
 	regcomp(&regex_comment,"^\\s*(\\#?).*$",REG_EXTENDED);
 	regcomp(&regex_empty_line,"^\\s*$",REG_EXTENDED);
 	regcomp(&regex_record_selector,"^\\s*(RECORD|MULTIRECORD)\\s*$",REG_EXTENDED);
-	regcomp(&regex_source_selector,"^\\s*(FILE|COMMAND)\\:.*$",REG_EXTENDED); //(\\w+)
-	regcomp(&regex_file,"^\\s*(\\w+)\\s*,\\s*([0-9]+)\\s*,\\s*(.*?)\\s*$",REG_EXTENDED);
+	regcomp(&regex_source_selector,"^\\s*(FILE|COMMAND).*$",REG_EXTENDED);
+	regcomp(&regex_file,"^\\s*([A-Za-z0-9/-]+|\"([^\"]*)\")\\s*,\\s*([0-9]+)\\s*,\\s*(.*?)\\s*$",REG_EXTENDED);
 	regcomp(&regex_rule,"^\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*$",REG_EXTENDED);
+	regcomp(&regex_collector,"^\\s*COLLECTOR\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})\\s*\\:\\s*([0-9]{1,5})\\s*$",REG_EXTENDED);
+	regcomp(&regex_interval,"^\\s*INTERVAL\\s+([0-9]+)\\s*$",REG_EXTENDED);
+	regcomp(&regex_odid,"^\\s*SOURCEID\\s+([0-9]+)\\s*$",REG_EXTENDED);
 	config_regex_inited = 1;
 }
 
@@ -121,7 +138,7 @@ int process_rule_line(char* line, int in_line){
 	//a new source descriptor or record descriptor in the next line
 	num_rule_lines--;
 	if(num_rule_lines<=0){
-		parse_mode = PARSE_MODE_SOURCE_OR_RECORD;
+		parse_mode = PARSE_MODE_SOURCE_OR_MAIN;
 	}
 
 	return 1;
@@ -150,19 +167,23 @@ int process_source_line(char* line, int in_line){
 
 	//store line with config data in dataline
 	char* dataline = &line[config_buffer[1].rm_eo+1];
-	if(regexec(&regex_file,dataline,4,config_buffer,0)){
+	if(regexec(&regex_file,dataline,5,config_buffer,0)){
 		fprintf(stderr,"Unrecognized config line (Line %d):\n%s",in_line,dataline);
 		exit(-1);
 	}
 
+	//Check which capturing group to use for source index, if the 2nd exists use this one
+	int path_index = 1;
+	if(config_buffer[2].rm_so!=-1) path_index = 2;
+
 	//extract file name
-	current_source->source_path = extract_string_from_regmatch(&config_buffer[1],dataline);
+	current_source->source_path = extract_string_from_regmatch(&config_buffer[path_index],dataline);
 
 	//extract rule count
-	current_source->rule_count = extract_int_from_regmatch(&config_buffer[2],dataline);
+	current_source->rule_count = extract_int_from_regmatch(&config_buffer[3],dataline);
 
 	//extract pattern
-	current_source->reg_exp = extract_string_from_regmatch(&config_buffer[3],dataline);
+	current_source->reg_exp = extract_string_from_regmatch(&config_buffer[4],dataline);
 
 	//compile pattern
 	regcomp(&(current_source->reg_exp_compiled),current_source->reg_exp,REG_EXTENDED);
@@ -205,7 +226,38 @@ int process_record_line(char* line, int in_line){
 
 	parse_mode = PARSE_MODE_SOURCE_DESCR;
 	return 1;
+}
 
+int process_collector_line(char* line, int in_line){
+	if(regexec(&regex_collector,line,3,config_buffer,0)){
+		fprintf(stderr,"Collector line %d in config file is malformed:\n%s\n",in_line,line);
+		exit(-1);
+	}
+
+	char* ip = extract_string_from_regmatch(&config_buffer[1],line);
+	int port = extract_int_from_regmatch(&config_buffer[2],line);
+	create_collector_descriptor(ip,port);
+	return 1;
+}
+
+int process_interval_line(char* line, int in_line){
+	if(regexec(&regex_interval,line,2,config_buffer,0)){
+		fprintf(stderr,"Interval line %d in config file is malformed:\n%s\n",in_line,line);
+		exit(-1);
+	}
+
+	current_config_file->interval = extract_int_from_regmatch(&config_buffer[1],line);
+	return 1;
+}
+
+int process_odid_line(char* line, int in_line){
+	if(regexec(&regex_odid,line,2,config_buffer,0)){
+		fprintf(stderr,"Source id line %d in config file is malformed:\n%s\n",in_line,line);
+		exit(-1);
+	}
+
+	current_config_file->observation_domain_id = extract_int_from_regmatch(&config_buffer[1],line);
+	return 1;
 }
 
 int process_config_line(char* line, int in_line){
@@ -222,19 +274,36 @@ int process_config_line(char* line, int in_line){
 		}
 	}
 
-	if(parse_mode == PARSE_MODE_RECORD){
-		process_record_line(line, in_line);
+	if(parse_mode == PARSE_MODE_MAIN){
+		if(!regexec(&regex_collector,line,3,config_buffer,0)){
+			process_collector_line(line, in_line);
+		} else if(!regexec(&regex_record_selector,line,2,config_buffer,0)) {
+			process_record_line(line, in_line);
+		} else if(!regexec(&regex_interval,line,2,config_buffer,0)) {
+			process_interval_line(line, in_line);
+		} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
+			process_odid_line(line, in_line);
+		} else {
+			fprintf(stderr,"Line %d is malformed (expecting record descriptor, interval descriptor, or collector descriptor):\n%s\n",in_line,line);
+			exit(-1);
+		}
 	}else if(parse_mode == PARSE_MODE_SOURCE_DESCR){
 		process_source_line(line, in_line);
 	}else if(parse_mode == PARSE_MODE_RULE){
 		process_rule_line(line, in_line);
-	}else if(parse_mode == PARSE_MODE_SOURCE_OR_RECORD){
-		if(!regexec(&regex_record_selector,line,2,config_buffer,0)){
+	}else if(parse_mode == PARSE_MODE_SOURCE_OR_MAIN){
+		if(!regexec(&regex_collector,line,3,config_buffer,0)){
+			process_collector_line(line, in_line);
+		} else if(!regexec(&regex_record_selector,line,2,config_buffer,0)){
 			process_record_line(line, in_line);
 		} else if(!regexec(&regex_source_selector,line,2,config_buffer,0)){
 			process_source_line(line, in_line);
+		} else if(!regexec(&regex_interval,line,2,config_buffer,0)) {
+			process_interval_line(line, in_line);
+		} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
+			process_odid_line(line, in_line);
 		} else {
-			fprintf(stderr,"Expecting record selector or source selector in line %d\n",in_line);
+			fprintf(stderr,"Line %d is malformed (expecting record descriptor, collector descriptor, interval descriptor, or source descriptor from previous record):\n%s\n",in_line,line);
 			exit(-1);
 		}
 	}
@@ -261,7 +330,7 @@ config_file_descriptor* read_config(char* filename){
 	}
 
 	//Set parse mode to record (the parser first expects a record line)
-	parse_mode = PARSE_MODE_RECORD;
+	parse_mode = PARSE_MODE_MAIN;
 
 	int in_line;
 	char curr_line[MAX_CONF_LINE_LENGTH];
@@ -272,18 +341,31 @@ config_file_descriptor* read_config(char* filename){
 	}
 	fclose(fp);
 
+	/*
+	 * ERROR HANDLING
+	 */
+
+	//Missing rule lines at the end of file
 	if(num_rule_lines>0){
 		fprintf(stderr, "Reached end of config file, but still %d rules missing for the last source!\n", num_rule_lines);
 		exit(-1);
 	}
 
+	//No records found
 	if(current_config_file->record_descriptors->size==0){
 		fprintf(stderr, "Reached end of config file, but no record found (empty config?)\n");
 		exit(-1);
 	}
 
+	//Missing sources at the end of file
 	if(current_record->sources->size==0){
 		fprintf(stderr, "Reached end of config file, but the last record has no sources!\n");
+		exit(-1);
+	}
+
+	//No collectors defined
+	if(current_config_file->collectors->size==0){
+		fprintf(stderr, "Reached end of config file, but no collector definitions found\n");
 		exit(-1);
 	}
 
@@ -302,43 +384,56 @@ char* get_indent(int num_spaces){
 void echo_config_file(config_file_descriptor* conf){
 	list_node* cur;
 	int indent = 0;
-	fprintf(stderr,"Config file with %d records:\n", conf->record_descriptors->size);
-	indent = 2;
+	fprintf(stderr,"Config file with %d records and %d collectors:\n", conf->record_descriptors->size, conf->collectors->size);
+	indent += 2;
+	fprintf(stderr,"%sSend interval: %d\n%sObservation domain id: %d\n", get_indent(indent), conf->interval, get_indent(indent), conf->observation_domain_id);
+	fprintf(stderr,"%sCollector descriptors:\n", get_indent(indent));
+	indent += 2;
+	for(cur=conf->collectors->first;cur!=NULL;cur=cur->next){
+			collector_descriptor* cur_collector = (collector_descriptor*)cur->data;
+			fprintf(stderr,"%sCollector: %s:%d\n",
+					get_indent(indent),
+					cur_collector->ip,
+					cur_collector->port);
+		}
+	indent -= 2;
+	fprintf(stderr,"%sRecords descriptors:\n", get_indent(indent));
+	indent += 2;
 	for(cur=conf->record_descriptors->first;cur!=NULL;cur=cur->next){
-		record_descriptor* curRecord = (record_descriptor*)cur->data;
+		record_descriptor* cur_record = (record_descriptor*)cur->data;
 		fprintf(stderr,"%s%sRecord with %i sources\n",
 				get_indent(indent),
-				(curRecord->is_multirecord?"Multi":""),
-				curRecord->sources->size);
+				(cur_record->is_multirecord?"Multi":""),
+				cur_record->sources->size);
 
 		//start echo sources
 		indent+=2;
 
 		list_node* cur2;
 
-		for(cur2=curRecord->sources->first;cur2!=NULL;cur2=cur2->next){
-			source_descriptor* curSource = (source_descriptor*)cur2->data;
+		for(cur2=cur_record->sources->first;cur2!=NULL;cur2=cur2->next){
+			source_descriptor* cur_source = (source_descriptor*)cur2->data;
 
 			fprintf(stderr,"%sSource %s (type %d) with %d rules and pattern: %s\n",
 					get_indent(indent),
-					curSource->source_path,
-					curSource->source_type,
-					curSource->rule_count,
-					curSource->reg_exp);
+					cur_source->source_path,
+					cur_source->source_type,
+					cur_source->rule_count,
+					cur_source->reg_exp);
 
 			//start echo rules
 			indent+=2;
 
 			list_node* cur3;
 
-			for(cur3=curSource->rules->first;cur3!=NULL;cur3=cur3->next){
-				transform_rule* curRule = (transform_rule*)cur3->data;
+			for(cur3=cur_source->rules->first;cur3!=NULL;cur3=cur3->next){
+				transform_rule* cur_rule = (transform_rule*)cur3->data;
 
 				fprintf(stderr,"%sRule with bytecount %d, information element id %d and enterprise id %d\n",
 						get_indent(indent),
-						curRule->bytecount,
-						curRule->ie_id,
-						curRule->enterprise_id);
+						cur_rule->bytecount,
+						cur_rule->ie_id,
+						cur_rule->enterprise_id);
 			}
 
 			indent-=2;
