@@ -7,10 +7,6 @@
 
 #include "transform_rules.h"
 
-transform_func get_rule_by_index(unsigned int index){
-	return NULL;
-}
-
 /******************** Concrete transform rules **************/
 //Transformation in 4 byte signed int
 void transform_int(char* input, void* buffer, transform_rule* rule){
@@ -19,6 +15,11 @@ void transform_int(char* input, void* buffer, transform_rule* rule){
     // der Int-Wert soll in der Adresse gespeichert werden, wo der Zeiger zeigt..
 	//(int*)buffer -> es muss angegeben werden, was für Daten in dem Buffer gespeichert werden
 }
+
+void transform_string(char* input, void* buffer, transform_rule* rule){
+	strncpy((char*)buffer,input,rule->bytecount);
+}
+
 void transform_ip(char* input, void* buffer, transform_rule* rule){
 	struct in_addr addr;
 	if(!inet_aton(input,&addr)){
@@ -28,13 +29,8 @@ void transform_ip(char* input, void* buffer, transform_rule* rule){
 	uint32_t ip_addr = htonl(addr.s_addr);
 	(*(uint32_t*)buffer)= ip_addr;
 }
-//siehe
-/* Internet address.  */
-//typedef uint32_t in_addr_t;
-//struct in_addr
-//  {
-//	 in_addr_t s_addr;
-//	};
+
+
 
 void transform_mac_address(char* input, void* buffer, transform_rule* rule){
  	memcpy(buffer,input,17);
@@ -44,6 +40,19 @@ void transform_port(char* input, void* buffer, transform_rule* rule){
 	uint16_t dst_port = htons(atoi(input));
 	(*(uint16_t*)buffer)= dst_port;
 }
+
+transform_func get_rule_by_index(unsigned int index){
+	switch(index){
+		case 0:	return NULL;
+		case 1:	return transform_int;
+		case 2: return transform_string;
+		case 3:	return transform_ip;
+		case 4:	return transform_mac_address;
+	}
+	return NULL;
+}
+
+
 
 transform_rule rule_src_ip = {4,&transform_ip,IPFIX_TYPEID_sourceIPv4Address,0};
 transform_rule rule_sMacAddress = {4,&transform_mac_address, IPFIX_TYPEID_sourceMacAddress,0};

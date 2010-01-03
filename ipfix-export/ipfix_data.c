@@ -7,7 +7,10 @@
 
 #include "ipfix_data.h"
 #include "load_data.h"
+#include "ipfixlolib/ipfixlolib.h"
+#include "ipfixlolib/msg.h"
 
+extern int verbose_level;
 
 char send_buffer[SEND_BUFFER_SIZE];
 regmatch_t match_buffer[MATCH_BUFFER_SIZE];
@@ -71,6 +74,8 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 			//One more dataset in the sendbuffer
 			num_datasets++;
 
+			if(verbose_level>=2) printf("Found dataset in source %s (%d rules)\n", source->source_path, source->rule_count);
+
 			//Über alle Capturing Groups/Rules iterieren
 			list_node* cur;
 			int i=0;
@@ -91,8 +96,12 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 					//Regel anwenden! (dies transformiert den Inhalt und schreibt ihn in den send_buffer)
 					apply_rule(&input[match_buffer[i].rm_so],curRule);
 
+					if(verbose_level>=2) printf("Field %d: \"%s\"\n", i, &input[match_buffer[i].rm_so]);
+
 					//Nullterminierung rückgängig machen
 					input[match_buffer[i].rm_eo] = swap;
+				} else {
+					if(verbose_level>=2) printf("Field %d: ignored\n", i);
 				}
 
 			}
@@ -105,6 +114,13 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 				break;
 			}
 
+		} else{
+			if(verbose_level >= 2){
+				if(num_datasets==0){
+					printf("No dataset found in source %s\n%s\n", source->source_path);
+
+				}
+			}
 		}
 
 	//If this is a multirecord and we found a match, search the next match;

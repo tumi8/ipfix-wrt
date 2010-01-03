@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include "ipfixlolib/ipfixlolib.h"
 #include "ipfixlolib/ipfix.h"
-#include "ipfixlolib/msg.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +49,13 @@
 #define SOURCE_TYPE_FILE 0 		//A file
 #define SOURCE_TYPE_COMMAND 1	//A shell command
 
+#define STANDARD_VERBOSE_LEVEL 2
+
+
+/**
+ * bool, since C doesn't have it :(
+ */
+typedef int boolean;
 
 
 /*
@@ -87,6 +93,7 @@ typedef struct{
 	list* collectors;
 	int interval;
 	int observation_domain_id;
+	int verbose;
 } config_file_descriptor;
 
 typedef struct{
@@ -119,10 +126,7 @@ typedef struct tr_rule {
  */
 typedef void (*transform_func) (char* input,void* target_buffer, struct tr_rule* rule);
 
-/**
- * bool, since C doesn't have it :(
- */
-typedef int boolean;
+
 
 
 

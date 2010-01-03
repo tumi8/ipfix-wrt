@@ -17,7 +17,7 @@ char* load_command(char* command){
 	}
 
 	//Read the content
-	int bytes_read = fread (input_buffer, sizeof(char) * INPUT_BUFFER_SIZE -1, 1, fp);
+	int bytes_read = fread (input_buffer, 1, sizeof(char) * INPUT_BUFFER_SIZE -1, fp);
 
 	//If the content doesn't fit into the buffer, give a warning
 	if(bytes_read == sizeof(char) * INPUT_BUFFER_SIZE-1){
@@ -42,10 +42,10 @@ char* load_file(char* filename){
 		fprintf(stderr, "Reading file \"%s\" failed!\n", filename);
 		exit(-1);
 	}
-
 	//Read the content
-	int bytes_read = fread (input_buffer, sizeof(char) * INPUT_BUFFER_SIZE -1, 1, fp);
+	int bytes_read = fread (input_buffer, 1, sizeof(char) * INPUT_BUFFER_SIZE -1, fp);
 
+	printf("---%s---%d",filename,bytes_read);
 	//If the content doesn't fit into the buffer, give a warning
 	if(bytes_read == sizeof(char) * INPUT_BUFFER_SIZE-1){
 		fprintf(stderr, "Warning: File \"%s\"'s content is larger than the buffer's size (%d)!\n", filename,bytes_read);
@@ -56,6 +56,7 @@ char* load_file(char* filename){
 
 	//Close the file handle
 	fclose(fp);
+	printf("%s\n",input_buffer);
 	return input_buffer;
 }
 

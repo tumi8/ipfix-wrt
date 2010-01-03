@@ -8,6 +8,9 @@
 #include "ipfix_templates.h"
 #include "ipfix_data.h"
 #include "config_file.h"
+#include "ipfixlolib/msg.h"
+
+int verbose_level = STANDARD_VERBOSE_LEVEL;
 
 /**
  * Takes all collectors from config file <conf>
@@ -31,8 +34,8 @@ void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
 int main(int argc, char **argv)
 {
 	//Read config file
-	config_file_descriptor* conf = read_config("test.txt");
-	echo_config_file(conf);
+	config_file_descriptor* conf = read_config("config.conf");
+
 	//Init exporter
 	ipfix_exporter* send_exporter;
 	int ret = ipfix_init_exporter(conf->observation_domain_id, &send_exporter);
@@ -46,12 +49,19 @@ int main(int argc, char **argv)
 	init_collectors(conf,send_exporter);
 
 	//Generate templates
+	printf("Generating templates from config...");
+	fflush(NULL);
 	generate_templates_from_config(send_exporter,conf);
+	printf(" DONE!\n");
 
 	//Periodically, send the configured datasets
+	int i = 0;
 	while(1){
+		i++;
+		if(verbose_level>=1)printf("Starting export %d...\n",i);
 		config_to_ipfix(send_exporter,conf);
-		sleep(conf->interval*1000);
+		if(verbose_level>=1)printf("Export finished!\n");
+		sleep(conf->interval);
 	}
 
 	//Dead code :)

@@ -39,6 +39,7 @@ config_file_descriptor* create_config_file_descriptor(){
 	current_config_file = (config_file_descriptor*) malloc(sizeof(config_file_descriptor));
 	current_config_file->record_descriptors = list_create();
 	current_config_file->collectors = list_create();
+	current_config_file->verbose = STANDARD_VERBOSE_LEVEL;
 	current_config_file->interval = STANDARD_SEND_INTERVAL;
 	current_config_file->observation_domain_id = OBSERVATION_DOMAIN_STANDARD_ID;
 	return current_config_file;
@@ -87,7 +88,7 @@ void init_config_regex(){
 	regcomp(&regex_empty_line,"^\\s*$",REG_EXTENDED);
 	regcomp(&regex_record_selector,"^\\s*(RECORD|MULTIRECORD)\\s*$",REG_EXTENDED);
 	regcomp(&regex_source_selector,"^\\s*(FILE|COMMAND).*$",REG_EXTENDED);
-	regcomp(&regex_file,"^\\s*([A-Za-z0-9/-]+|\"([^\"]*)\")\\s*,\\s*([0-9]+)\\s*,\\s*(.*?)\\s*$",REG_EXTENDED);
+	regcomp(&regex_file,"^\\s*([A-Za-z0-9/-]+|\"([^\"]*)\")\\s*,\\s*([0-9]+)\\s*,\\s*\"(.*)\"\\s*",REG_EXTENDED);
 	regcomp(&regex_rule,"^\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*$",REG_EXTENDED);
 	regcomp(&regex_collector,"^\\s*COLLECTOR\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})\\s*\\:\\s*([0-9]{1,5})\\s*$",REG_EXTENDED);
 	regcomp(&regex_interval,"^\\s*INTERVAL\\s+([0-9]+)\\s*$",REG_EXTENDED);
@@ -268,9 +269,8 @@ int process_config_line(char* line, int in_line){
 
 	//Skip comments
 	if(!regexec(&regex_comment,line,2,config_buffer,0)){
-		if(line[config_buffer[1].rm_so] == '#'){
-			return 0;
-		}
+		return 0;
+
 	}
 
 	if(parse_mode == PARSE_MODE_MAIN){
