@@ -82,9 +82,8 @@ transform_rule* create_transform_rule(){
 	return tr;
 }
 
-
 void init_config_regex(){
-	regcomp(&regex_comment,"^\\s*(\\#?).*$",REG_EXTENDED);
+	regcomp(&regex_comment,"^\\s*\\#.*$",REG_EXTENDED);
 	regcomp(&regex_empty_line,"^\\s*$",REG_EXTENDED);
 	regcomp(&regex_record_selector,"^\\s*(RECORD|MULTIRECORD)\\s*$",REG_EXTENDED);
 	regcomp(&regex_source_selector,"^\\s*(FILE|COMMAND).*$",REG_EXTENDED);

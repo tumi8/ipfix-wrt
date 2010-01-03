@@ -7,6 +7,7 @@
 
 #ifndef IPFIX_HANDLING_H_
 #define IPFIX_HANDLING_H_
+#include <stddef.h>
 #include <regex.h>
 #include "core.h"
 
