@@ -35,7 +35,7 @@ int main(int argc, char **argv)
 {
 	//Read config file
 	config_file_descriptor* conf = read_config("config.conf");
-
+	//echo_config_file(conf);
 	//Init exporter
 	ipfix_exporter* send_exporter;
 	int ret = ipfix_init_exporter(conf->observation_domain_id, &send_exporter);

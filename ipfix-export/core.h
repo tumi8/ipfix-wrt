@@ -49,7 +49,7 @@
 #define SOURCE_TYPE_FILE 0 		//A file
 #define SOURCE_TYPE_COMMAND 1	//A shell command
 
-#define STANDARD_VERBOSE_LEVEL 2
+#define STANDARD_VERBOSE_LEVEL 4
 
 
 /**
@@ -115,7 +115,8 @@ typedef struct{
  */
 typedef struct tr_rule {
 	uint16_t bytecount;
-	void (*transform)(char* input,void* target_buffer, struct tr_rule* rule);
+	int transform_id;
+	void (*transform_func)(char* input,void* target_buffer, struct tr_rule* rule);
 	uint16_t ie_id;
 	uint32_t enterprise_id;
 } transform_rule;

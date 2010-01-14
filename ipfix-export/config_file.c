@@ -120,10 +120,11 @@ int process_rule_line(char* line, int in_line){
 		fprintf(stderr,"Malformed line (line %d)!\nExpecting rule line, but found this line:\n%s\n", in_line,line);
 		exit(-1);
 	}
-
+	int transform_id = extract_int_from_regmatch(&config_buffer[2],line);
 	transform_rule* tr = create_transform_rule();
 	tr->bytecount = (uint16_t)extract_int_from_regmatch(&config_buffer[1],line);
-	tr->transform = get_rule_by_index(extract_int_from_regmatch(&config_buffer[2],line));
+	tr->transform_func = get_rule_by_index(transform_id);
+	tr->transform_id = transform_id;
 	tr->ie_id = extract_int_from_regmatch(&config_buffer[3],line);
 	tr->enterprise_id = extract_int_from_regmatch(&config_buffer[4],line);
 	/*fprintf(stderr,"Found rule line (%d rule lines expected afterwards):\nBytecount: %d\nTransform: %d\nIE: %d\nEnterprise id: %d\n"
@@ -193,7 +194,7 @@ int process_source_line(char* line, int in_line){
 	num_rule_lines = current_source->rule_count;
 
 
-	fprintf(stderr,"Found proc line:\nFile Name: %s\nRule count: %d\nPattern: <%s>\n",current_source->source_path,current_source->rule_count,current_source->reg_exp);
+	//fprintf(stderr,"Found proc line:\nFile Name: %s\nRule count: %d\nPattern: <%s>\n",current_source->source_path,current_source->rule_count,current_source->reg_exp);
 	number_of_proc_file++;
 
 	//Go into rule mode
@@ -273,38 +274,43 @@ int process_config_line(char* line, int in_line){
 
 	}
 
-	if(parse_mode == PARSE_MODE_MAIN){
-		if(!regexec(&regex_collector,line,3,config_buffer,0)){
-			process_collector_line(line, in_line);
-		} else if(!regexec(&regex_record_selector,line,2,config_buffer,0)) {
-			process_record_line(line, in_line);
-		} else if(!regexec(&regex_interval,line,2,config_buffer,0)) {
-			process_interval_line(line, in_line);
-		} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
-			process_odid_line(line, in_line);
-		} else {
-			fprintf(stderr,"Line %d is malformed (expecting record descriptor, interval descriptor, or collector descriptor):\n%s\n",in_line,line);
-			exit(-1);
-		}
-	}else if(parse_mode == PARSE_MODE_SOURCE_DESCR){
-		process_source_line(line, in_line);
-	}else if(parse_mode == PARSE_MODE_RULE){
-		process_rule_line(line, in_line);
-	}else if(parse_mode == PARSE_MODE_SOURCE_OR_MAIN){
-		if(!regexec(&regex_collector,line,3,config_buffer,0)){
-			process_collector_line(line, in_line);
-		} else if(!regexec(&regex_record_selector,line,2,config_buffer,0)){
-			process_record_line(line, in_line);
-		} else if(!regexec(&regex_source_selector,line,2,config_buffer,0)){
+	switch(parse_mode){
+		case PARSE_MODE_MAIN:
+			if(!regexec(&regex_collector,line,3,config_buffer,0)){
+				process_collector_line(line, in_line);
+			} else if(!regexec(&regex_record_selector,line,2,config_buffer,0)) {
+				process_record_line(line, in_line);
+			} else if(!regexec(&regex_interval,line,2,config_buffer,0)) {
+				process_interval_line(line, in_line);
+			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
+				process_odid_line(line, in_line);
+			} else {
+				fprintf(stderr,"Line %d is malformed (expecting record descriptor, interval descriptor, or collector descriptor):\n%s\n",in_line,line);
+				exit(-1);
+			}
+			break;
+		case PARSE_MODE_SOURCE_DESCR:
 			process_source_line(line, in_line);
-		} else if(!regexec(&regex_interval,line,2,config_buffer,0)) {
-			process_interval_line(line, in_line);
-		} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
-			process_odid_line(line, in_line);
-		} else {
-			fprintf(stderr,"Line %d is malformed (expecting record descriptor, collector descriptor, interval descriptor, or source descriptor from previous record):\n%s\n",in_line,line);
-			exit(-1);
-		}
+			break;
+		case PARSE_MODE_RULE:
+			process_rule_line(line, in_line);
+			break;
+		case PARSE_MODE_SOURCE_OR_MAIN:
+			if(!regexec(&regex_collector,line,3,config_buffer,0)){
+				process_collector_line(line, in_line);
+			} else if(!regexec(&regex_record_selector,line,2,config_buffer,0)){
+				process_record_line(line, in_line);
+			} else if(!regexec(&regex_source_selector,line,2,config_buffer,0)){
+				process_source_line(line, in_line);
+			} else if(!regexec(&regex_interval,line,2,config_buffer,0)) {
+				process_interval_line(line, in_line);
+			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
+				process_odid_line(line, in_line);
+			} else {
+				fprintf(stderr,"Line %d is malformed (expecting record descriptor, collector descriptor, interval descriptor, or source descriptor from previous record):\n%s\n",in_line,line);
+				exit(-1);
+			}
+			break;
 	}
 
 	return 1;

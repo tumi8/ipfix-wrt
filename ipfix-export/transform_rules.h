@@ -12,5 +12,6 @@
 #include "core.h"
 
 transform_func get_rule_by_index(unsigned int index);
+char* get_description_by_index(unsigned int index);
 
 #endif /* TRANSFORM_RULES_H_ */

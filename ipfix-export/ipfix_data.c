@@ -7,6 +7,7 @@
 
 #include "ipfix_data.h"
 #include "load_data.h"
+#include "transform_rules.h"
 #include "ipfixlolib/ipfixlolib.h"
 #include "ipfixlolib/msg.h"
 
@@ -35,7 +36,7 @@ void apply_rule(char* input,transform_rule* rule){
 	}
 
 	//Regel anwenden
-	rule->transform(input,send_buffer+send_buffer_offset,rule);
+	rule->transform_func(input,send_buffer+send_buffer_offset,rule);
 
 	//Offset weiterschieben
 	send_buffer_offset+=rule->bytecount;
@@ -61,20 +62,27 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 	regex_t* regEx = &(source->reg_exp_compiled);
 	int num_rules = source->rule_count;
 
+	if(verbose_level>=2){
+		printf("Processing source \"%s\" (%d rules)\n", source->source_path, source->rule_count);
+		if(verbose_level>=4){
+			printf("Source content:\n%s\n",input);
+		}
+	}
+
 	boolean matched;
 	do{
 
 		matched = FALSE;
 		//Mit pattern matchen
 		if(!regexec(regEx, input,num_rules+1, match_buffer, 0)){
-			printf("%s\n",input);
+			//if(verbose_level>=3)printf("%s\n",input);
 
 			matched = TRUE;
 
 			//One more dataset in the sendbuffer
 			num_datasets++;
 
-			if(verbose_level>=2) printf("Found dataset in source %s (%d rules)\n", source->source_path, source->rule_count);
+			if(verbose_level>=3) printf("  Found dataset (Num:%d):\n", num_datasets);
 
 			//Über alle Capturing Groups/Rules iterieren
 			list_node* cur;
@@ -96,12 +104,12 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 					//Regel anwenden! (dies transformiert den Inhalt und schreibt ihn in den send_buffer)
 					apply_rule(&input[match_buffer[i].rm_so],curRule);
 
-					if(verbose_level>=2) printf("Field %d: \"%s\"\n", i, &input[match_buffer[i].rm_so]);
+					if(verbose_level>=3) printf("    Field %d (%s, %d byte): \"%s\"\n", i,get_description_by_index(curRule->transform_id),curRule->bytecount, &input[match_buffer[i].rm_so]);
 
 					//Nullterminierung rückgängig machen
 					input[match_buffer[i].rm_eo] = swap;
 				} else {
-					if(verbose_level>=2) printf("Field %d: ignored\n", i);
+					if(verbose_level>=3) printf("    Field %d: ignored\n", i);
 				}
 
 			}
@@ -114,10 +122,11 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 				break;
 			}
 
+
 		} else{
 			if(verbose_level >= 2){
 				if(num_datasets==0){
-					printf("No dataset found in source %s\n%s\n", source->source_path);
+					printf("No dataset found!\n");
 
 				}
 			}
@@ -126,8 +135,40 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 	//If this is a multirecord and we found a match, search the next match;
 	}while(is_multirecord && matched);
 
+	if(verbose_level >= 2 && num_datasets > 0){
+		printf("--> Found %d datasets!\n", num_datasets);
+	}
 	return num_datasets;
 }
+
+/**
+ * Writes zeros into the send buffer for a source
+ * This method is called if no valid dataset for the resource is found
+ */
+int source_default_to_send_buffer(char* input, source_descriptor* source, boolean is_multirecord){
+
+
+	//Count number of bytes to set to zero
+	int num_bytes = 0;
+	list_node* cur;
+	for(cur=source->rules->first;cur!=NULL;cur=cur->next){
+			transform_rule* curRule = (transform_rule*)cur->data;
+			num_bytes += curRule->bytecount;
+	}
+
+	//Zero them!
+	memset(send_buffer+send_buffer_offset,0,num_bytes);
+
+	//Shift buffer pointer
+	send_buffer_offset+=num_bytes;
+
+	//Verbose...
+	if(verbose_level>=2)printf("Skipping %d bytes, because no dataset found in source %s!\n",num_bytes, source->source_path);
+
+	return num_bytes;
+
+}
+
 
 /**
  * Sendet einfach den kompletten send_buffer als ein Datensatz an ipfix.
@@ -204,6 +245,15 @@ void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
 		//and write the result to send buffer
 		num_datasets = source_to_send_buffer(input, cur_source, record->is_multirecord);
 
+		//A source returned 0 datasets, we will not send it if it is a multirecord
+		//If it is a normal record, we will fill it with zeros.
+		if(num_datasets == 0){
+			if(record->is_multirecord){
+				if(verbose_level>=1)printf("Skipping multirecord, because no dataset found in source %s!\n",cur_source->source_path);
+			} else {
+				source_default_to_send_buffer(input, cur_source, record->is_multirecord);
+			}
+		}
 	}
 
 	//If there were datasets created, dump the send buffer to ipfix

@@ -26,6 +26,7 @@ list_node* list_insert(list* list, void* data){
 		last->next = new_node;
 		new_node->prev = last;
 		new_node->next = NULL;
+		list->last = new_node;
 	}
 	list->size = list->size + 1;
 	return new_node;

@@ -16,8 +16,28 @@ void transform_int(char* input, void* buffer, transform_rule* rule){
 	//(int*)buffer -> es muss angegeben werden, was für Daten in dem Buffer gespeichert werden
 }
 
+void transform_float(char* input, void* buffer, transform_rule* rule){
+	float f = (float)atof(input);
+	(*(float*)buffer) = f;
+}
+
+void transform_double(char* input, void* buffer, transform_rule* rule){
+	double f = atof(input);
+	(*(double*)buffer) = f;
+}
+
+void transform_percent(char* input, void* buffer, transform_rule* rule){
+	float f = (float)atof(input);
+	(*(float*)buffer) = f*0.01;
+}
+
+//Will always be a 0 terminated string, so the bytecount
+//should be string length + 1 at least.
+//If the string is shorter, the field will be padded with zeros
 void transform_string(char* input, void* buffer, transform_rule* rule){
-	strncpy((char*)buffer,input,rule->bytecount);
+	strncpy((char*)buffer,input,rule->bytecount-1);
+	buffer = buffer + (rule->bytecount-1);
+	(*(char*)buffer) = '\0';
 }
 
 void transform_ip(char* input, void* buffer, transform_rule* rule){
@@ -48,16 +68,26 @@ transform_func get_rule_by_index(unsigned int index){
 		case 2: return transform_string;
 		case 3:	return transform_ip;
 		case 4:	return transform_mac_address;
+		case 5: return transform_float;
+		case 6: return transform_double;
+		case 7: return transform_percent;
+
 	}
 	return NULL;
 }
 
+char* get_description_by_index(unsigned int index){
+	switch(index){
+		case 0:	return "ignore";
+		case 1:	return "int";
+		case 2: return "string";
+		case 3:	return "ip addr";
+		case 4:	return "mac addr";
+		case 5: return "float";
+		case 6: return "double";
+		case 7: return "percent";
 
+	}
+	return NULL;
+}
 
-transform_rule rule_src_ip = {4,&transform_ip,IPFIX_TYPEID_sourceIPv4Address,0};
-transform_rule rule_sMacAddress = {4,&transform_mac_address, IPFIX_TYPEID_sourceMacAddress,0};
-transform_rule rule_udp_src_port = {4,&transform_port,IPFIX_TYPEID_udpSourcePort,0};
-transform_rule rule_ignore = {0,0,0,0}; //Ignoriert diesen wert
-
-//transfocorerm_rule rule_string = {1,&transform_string};
-//transform_rule rule_ip = {1,&transform_ip};
