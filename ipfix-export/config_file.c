@@ -22,9 +22,9 @@ int parse_mode = PARSE_MODE_MAIN;
 int current_default_template_id = 256;
 regex_t regex_empty_line;
 regex_t regex_comment;
-regex_t regex_source_selector;
 regex_t regex_record_selector;
-regex_t regex_file;
+regex_t regex_source_selector;
+regex_t regex_source_suffix;
 regex_t regex_rule;
 regex_t regex_collector;
 regex_t regex_interval;
@@ -88,7 +88,7 @@ void init_config_regex(){
 	regcomp(&regex_empty_line,"^\\s*$",REG_EXTENDED);
 	regcomp(&regex_record_selector,"^\\s*(RECORD|MULTIRECORD)\\s*$",REG_EXTENDED);
 	regcomp(&regex_source_selector,"^\\s*(FILE|COMMAND).*$",REG_EXTENDED);
-	regcomp(&regex_file,"^\\s*([A-Za-z0-9/-]+|\"([^\"]*)\")\\s*,\\s*([0-9]+)\\s*,\\s*\"(.*)\"\\s*",REG_EXTENDED);
+	regcomp(&regex_source_suffix,"^\\s*([A-Za-z0-9/-]+|\"([^\"]*)\")\\s*,\\s*([0-9]+)\\s*,\\s*\"(.*)\"\\s*",REG_EXTENDED);
 	regcomp(&regex_rule,"^\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*,\\s*([0-9]+)\\s*$",REG_EXTENDED);
 	regcomp(&regex_collector,"^\\s*COLLECTOR\\s+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})\\s*\\:\\s*([0-9]{1,5})\\s*$",REG_EXTENDED);
 	regcomp(&regex_interval,"^\\s*INTERVAL\\s+([0-9]+)\\s*$",REG_EXTENDED);
@@ -168,7 +168,7 @@ int process_source_line(char* line, int in_line){
 
 	//store line with config data in dataline
 	char* dataline = &line[config_buffer[1].rm_eo+1];
-	if(regexec(&regex_file,dataline,5,config_buffer,0)){
+	if(regexec(&regex_source_suffix,dataline,5,config_buffer,0)){
 		fprintf(stderr,"Unrecognized config line (Line %d):\n%s",in_line,dataline);
 		exit(-1);
 	}

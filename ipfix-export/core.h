@@ -8,10 +8,10 @@
 #ifndef CORE_H_
 #define CORE_H_
 #include <stdio.h>
+#include <stdlib.h>
 #include "ipfixlolib/ipfixlolib.h"
 #include "ipfixlolib/ipfix.h"
 #include <unistd.h>
-#include <stdlib.h>
 #include <string.h>
 #include <regex.h>
 
@@ -69,7 +69,7 @@ typedef struct src_d {
 	char* reg_exp;
 	regex_t reg_exp_compiled;
 	int rule_count;
-	int source_type;
+	int source_type; // 0 or 1
 	list* rules;
 } source_descriptor;
 

@@ -88,6 +88,6 @@ char* get_description_by_index(unsigned int index){
 		case 7: return "percent";
 
 	}
-	return NULL;
+	return "unknown";
 }
 

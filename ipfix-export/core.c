@@ -4,11 +4,13 @@
  *  Created on: 22.11.2009
  *      Author: kami
  */
-#include "core.h"
-#include "ipfix_templates.h"
-#include "ipfix_data.h"
+//#include "core.h"
 #include "config_file.h"
 #include "ipfixlolib/msg.h"
+#include "ipfix_templates.h"
+#include "ipfix_data.h"
+
+
 
 int verbose_level = STANDARD_VERBOSE_LEVEL;
 
