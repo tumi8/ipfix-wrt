@@ -59,7 +59,7 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 	//Count number of datasets in the sendbuffer
 	int num_datasets = 0;
 
-	regex_t* regEx = &(source->reg_exp_compiled);
+	regex_t* reg_ex = &(source->reg_exp_compiled);
 	int num_rules = source->rule_count;
 
 	if(verbose_level>=2){
@@ -74,7 +74,7 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 
 		matched = FALSE;
 		//Mit pattern matchen
-		if(!regexec(regEx, input,num_rules+1, match_buffer, 0)){
+		if(!regexec(reg_ex, input,num_rules+1, match_buffer, 0)){
 			//if(verbose_level>=3)printf("%s\n",input);
 
 			matched = TRUE;
@@ -88,13 +88,13 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 			list_node* cur;
 			int i=0;
 			for(cur=source->rules->first;cur!=NULL;cur=cur->next){
-				transform_rule* curRule = (transform_rule*)cur->data;
+				transform_rule* cur_rule = (transform_rule*)cur->data;
 
 				//Count rules
 				i++;
 
 				//Nur was tun, wenn die Regel bytecount > 0
-				if(curRule->bytecount!=0){
+				if(cur_rule->bytecount!=0){
 
 					//Jede Capturing Group erst nullterminieren, dass sie als Eingabestring benutzt werden kann
 					//Dabei das durch \0 ersetzte Zeichen merken, dass wir es später wieder tauschen können
@@ -102,9 +102,9 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 					input[match_buffer[i].rm_eo]='\0'; //0 terminieren
 
 					//Regel anwenden! (dies transformiert den Inhalt und schreibt ihn in den send_buffer)
-					apply_rule(&input[match_buffer[i].rm_so],curRule);
+					apply_rule(&input[match_buffer[i].rm_so],cur_rule);
 
-					if(verbose_level>=3) printf("    Field %d (%s, %d byte): \"%s\"\n", i,get_description_by_index(curRule->transform_id),curRule->bytecount, &input[match_buffer[i].rm_so]);
+					if(verbose_level>=3) printf("    Field %d (%s, %d byte): \"%s\"\n", i,get_description_by_index(cur_rule->transform_id),cur_rule->bytecount, &input[match_buffer[i].rm_so]);
 
 					//Nullterminierung rückgängig machen
 					input[match_buffer[i].rm_eo] = swap;

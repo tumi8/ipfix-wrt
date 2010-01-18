@@ -1,5 +1,5 @@
 /*
- * ipfix_handling.h
+ * ipfix_data.h
  *
  *  Created on: 13.12.2009
  *      Author: kami
@@ -13,4 +13,4 @@
 
 void config_to_ipfix(ipfix_exporter* exporter,config_file_descriptor* config);
 
-#endif /* IPFIX_HANDLING_H_ */
+#endif /* IPFIX_DATA_H_ */

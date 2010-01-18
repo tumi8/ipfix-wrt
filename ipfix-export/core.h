@@ -49,41 +49,13 @@
 #define SOURCE_TYPE_FILE 0 		//A file
 #define SOURCE_TYPE_COMMAND 1	//A shell command
 
-#define STANDARD_VERBOSE_LEVEL 4
+#define STANDARD_VERBOSE_LEVEL 3
 
 
 /**
  * bool, since C doesn't have it :(
  */
 typedef int boolean;
-
-
-/*
- * A descriptor for one source to read data from.
- * It contains the path and the type of the source
- * to read the data and a list of transformation rules
- * and the pattern to extract the fields from the data read.
- */
-typedef struct src_d {
-	char* source_path;
-	char* reg_exp;
-	regex_t reg_exp_compiled;
-	int rule_count;
-	int source_type; // 0 or 1
-	list* rules;
-} source_descriptor;
-
-
-/**
- * A descriptor for one record which becomes one
- * ipfix template and contains a list of sources
- * to gather data from.
- */
-typedef struct rec_d{
-	list* sources;
-	int template_id;
-	int is_multirecord;
-} record_descriptor;
 
 /**
  * A descriptor for a config file, containing a list of records
@@ -100,6 +72,34 @@ typedef struct{
 	char* ip;
 	int port;
 } collector_descriptor;
+
+
+/**
+ * A descriptor for one record which becomes one
+ * ipfix template and contains a list of sources
+ * to gather data from.
+ */
+typedef struct rec_d{
+	list* sources;
+	int template_id;
+	int is_multirecord;
+} record_descriptor;
+
+
+/*
+ * A descriptor for one source to read data from.
+ * It contains the path and the type of the source
+ * to read the data and a list of transformation rules
+ * and the pattern to extract the fields from the data read.
+ */
+typedef struct src_d {
+	char* source_path;
+	char* reg_exp;
+	regex_t reg_exp_compiled;
+	int rule_count;
+	int source_type; // 0 or 1
+	list* rules;
+} source_descriptor;
 
 
 /*

@@ -29,12 +29,21 @@ void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
 	}
 }
 
+void test(){
+	regex_t r;
+	int i = regcomp(&r,"\\s*",REG_EXTENDED);
+
+	int j = regexec(&r,"  ",0,0,0);
+	printf("regcomp returned %d regexec returned %d\n", i, j);
+
+}
 
 /**
  * Test main methode
  */
 int main(int argc, char **argv)
 {
+
 	//Read config file
 	config_file_descriptor* conf = read_config("config.conf");
 	//echo_config_file(conf);
