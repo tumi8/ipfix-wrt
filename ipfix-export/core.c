@@ -13,6 +13,9 @@
 
 
 int verbose_level = STANDARD_VERBOSE_LEVEL;
+regex_t param_regex;
+regex_t long_param_regex;
+regmatch_t param_matches[3];
 
 /**
  * Takes all collectors from config file <conf>
@@ -31,10 +34,58 @@ void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
 
 void test(){
 	regex_t r;
-	int i = regcomp(&r,"\\s*",REG_EXTENDED);
+	int i = regcomp(&r,"^\\s*$",REG_EXTENDED);
 
 	int j = regexec(&r,"  ",0,0,0);
 	printf("regcomp returned %d regexec returned %d\n", i, j);
+
+}
+
+void process_normal_param(char* param_name, int param_param){
+	if(!strcasecmp(param_name,"v")){
+		if(param_param > 4){
+			fprintf(stderr,"Verbose level must be between 0 and 4!\n");
+			exit(-1);
+		}
+		verbose_level = param_param;
+		printf("Verbose level set to %d!\n",verbose_level);
+	} else {
+		fprintf(stderr,"Unknown command line parameter -%s\n",param_name);
+		exit(-1);
+	}
+}
+
+void process_long_param(char* param_name){
+	if(!strcasecmp(param_name,"help")){
+		printf("Usage:\n LInEx [-vX]\n-vX sets the verbose level to X, X must be between 0 and 4. 0 is no command line output, 4 is very much!\n\nDon't forget to write an appropriate config.conf file before starting LInEx.\n");
+		exit(0);
+	} else {
+		fprintf(stderr,"Unknown command line parameter --%s\n",param_name);
+		exit(-1);
+	}
+
+}
+void parse_command_line_parameter(char* param){
+	if(!regexec(&param_regex,param,3,param_matches,0)){
+		char* name = extract_string_from_regmatch(&param_matches[1],param);
+		int parameter = extract_int_from_regmatch(&param_matches[2],param);
+		process_normal_param(name,parameter);
+	} else if(!regexec(&long_param_regex,param,3,param_matches,0)){
+		char* name = extract_string_from_regmatch(&param_matches[1],param);
+		process_long_param(name);
+	} else {
+		fprintf(stderr,"Unknown command line parameter %s",param);
+		exit(-1);
+	}
+}
+
+void parse_command_line_parameters(int argc, char **argv){
+	regcomp(&param_regex,"^\\-([a-z])([0-9]+)$",REG_EXTENDED);
+	regcomp(&long_param_regex,"^\\-\\-([a-z]+)$",REG_EXTENDED);
+	int i;
+	for(i=1;i<argc;i++){
+		parse_command_line_parameter(argv[i]);
+	}
 
 }
 
@@ -43,6 +94,8 @@ void test(){
  */
 int main(int argc, char **argv)
 {
+	//Process command line parameters
+	parse_command_line_parameters(argc,argv);
 
 	//Read config file
 	config_file_descriptor* conf = read_config("config.conf");

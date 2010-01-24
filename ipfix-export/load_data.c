@@ -8,6 +8,9 @@
 #include "load_data.h"
 char input_buffer[INPUT_BUFFER_SIZE];
 
+/**
+ * Loads the output of a command line command to the input buffer and returns a pointer to it
+ */
 char* load_command(char* command){
 	//Open file and check if it succeeded
 	FILE* fp = popen(command, "r");
@@ -59,7 +62,10 @@ char* load_file(char* filename){
 }
 
 
-
+/**
+ * Loads data from the <source>. The function determines
+ * if the source is a file or command and calls the appropriate function.
+ */
 char* load_data_from_source(source_descriptor* source){
 	switch(source->source_type){
 		case SOURCE_TYPE_FILE:

@@ -7,6 +7,7 @@
 
 #ifndef CORE_H_
 #define CORE_H_
+#define LInEx
 #include <stdio.h>
 #include <stdlib.h>
 #include "ipfixlolib/ipfixlolib.h"
@@ -49,7 +50,15 @@
 #define SOURCE_TYPE_FILE 0 		//A file
 #define SOURCE_TYPE_COMMAND 1	//A shell command
 
-#define STANDARD_VERBOSE_LEVEL 3
+/**
+ * The standard verbosity, possible values:
+ * 0 : show nothing, only init stuff
+ * 1 : show whenever an export is made
+ * 2 : show information about each source that is read
+ * 3 : show even more detailed information, i.e. the result of each transform rule
+ * 4 : show everything, even the content of all sources read (generates really a lot of text!)
+ */
+#define STANDARD_VERBOSE_LEVEL 1
 
 
 /**
@@ -64,13 +73,16 @@ typedef struct{
 	list* record_descriptors;
 	list* collectors;
 	int interval;
-	int observation_domain_id;
+	uint32_t observation_domain_id;
 	int verbose;
 } config_file_descriptor;
 
+/**
+ * A descriptor for a collector in a config file, i.e. its IP and port
+ */
 typedef struct{
 	char* ip;
-	int port;
+	uint16_t port;
 } collector_descriptor;
 
 
@@ -81,7 +93,7 @@ typedef struct{
  */
 typedef struct rec_d{
 	list* sources;
-	int template_id;
+	uint16_t template_id;
 	int is_multirecord;
 } record_descriptor;
 
@@ -103,15 +115,15 @@ typedef struct src_d {
 
 
 /*
- * Das zentrale rule struct beschreibt die Regel zur Umwandlung einer Capturing
- * Group:
- * Der bytecount gibt an wieviel byte der wert nach der konvertierung im sendbuffer belegen wird
- * transform muss eine funktion sein, die die eingabe (char*) und den sendbuffer (void*)
- * erhält, die eingabe geeignet konvertiert (z.B. in int umwandeln, networkbyteorder konvertierungen usw)
- * und dann in den übergebenen buffer schreibt.
+ * The rule struct describes a rule to transform the content of a capturing group:
  *
- * Dabei ist zu beachten, dass die funktion nicht mehr bytes schreiben sollte, als
- * im bytecount angegeben sind.
+ * The <bytecount> denotes how much bytes the data will have after transformation. Also needed for IPFIX
+ * The <transform_id> is the index of the transform function used to transform the string input to the desired format
+ * The <transform_func> is a pointer to the transform function to be used.
+ * It can be obtained by calling get_rule_by_index(transform_id), it is just stored reduntantly here for performance improvements
+ *
+ * The <ie_id> and the <enterprise_id> are the IPFIX information id and the enterprise
+ * id to be used for this data element, respectively.
  */
 typedef struct tr_rule {
 	uint16_t bytecount;

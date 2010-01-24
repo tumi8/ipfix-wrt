@@ -19,7 +19,7 @@ int config_regex_inited = 0;
 int num_rule_lines = 0;
 int number_of_proc_file = 0;
 int parse_mode = PARSE_MODE_MAIN;
-int current_default_template_id = 256;
+int current_default_template_id = 257;
 regex_t regex_empty_line;
 regex_t regex_comment;
 regex_t regex_record_selector;
@@ -45,6 +45,8 @@ config_file_descriptor* create_config_file_descriptor(){
 	return current_config_file;
 }
 
+
+//Constructor for collector descriptor
 collector_descriptor* create_collector_descriptor(char* ip, int port){
 	collector_descriptor* result = (collector_descriptor*) malloc(sizeof(collector_descriptor));
 	result->ip = ip;
@@ -83,6 +85,9 @@ transform_rule* create_transform_rule(){
 	return tr;
 }
 
+/**
+ * Inits the regular expressions needed for config parsing.
+ */
 void init_config_regex(){
 	regcomp(&regex_comment,"^\\s*\\#.*$",REG_EXTENDED);
 	regcomp(&regex_empty_line,"^\\s*$",REG_EXTENDED);
@@ -96,6 +101,10 @@ void init_config_regex(){
 	config_regex_inited = 1;
 }
 
+/**
+ * Extracts the content of the capturing group <match> from the <input>
+ * and returns it as a string.
+ */
 char* extract_string_from_regmatch(regmatch_t* match, char* input){
 	int length = (match->rm_eo-match->rm_so);
 	char* output = (char*)malloc(sizeof(char)*(length+1));
@@ -104,6 +113,10 @@ char* extract_string_from_regmatch(regmatch_t* match, char* input){
 	return output;
 }
 
+/**
+ * Extracts the content of a capturing group <match> from the <input>
+ * and returns it as an unsigned int.
+ */
 unsigned int extract_int_from_regmatch(regmatch_t* match, char* input){
 	//Null terminate
 	char swap = input[match->rm_eo];
@@ -114,6 +127,11 @@ unsigned int extract_int_from_regmatch(regmatch_t* match, char* input){
 	return result;
 }
 
+/**
+ * Processes a rule line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
 int process_rule_line(char* line, int in_line){
 
 	if(regexec(&regex_rule,line,5,config_buffer,0)){
@@ -127,12 +145,6 @@ int process_rule_line(char* line, int in_line){
 	tr->transform_id = transform_id;
 	tr->ie_id = extract_int_from_regmatch(&config_buffer[3],line);
 	tr->enterprise_id = extract_int_from_regmatch(&config_buffer[4],line);
-	/*fprintf(stderr,"Found rule line (%d rule lines expected afterwards):\nBytecount: %d\nTransform: %d\nIE: %d\nEnterprise id: %d\n"
-				,num_rule_lines-1
-				,tr->bytecount
-				,extract_int_from_regmatch(&config_buffer[2],line)
-				,tr->ie_id
-				,tr->enterprise_id);*/
 
 	//decrease number of rule lines to parse.
 	//If no more rule lines are to be parsed, the parsers expects
@@ -145,6 +157,12 @@ int process_rule_line(char* line, int in_line){
 	return 1;
 
 }
+
+/**
+ * Processes a source line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
 int process_source_line(char* line, int in_line){
 
 	if(regexec(&regex_source_selector,line,2,config_buffer,0)){
@@ -189,7 +207,6 @@ int process_source_line(char* line, int in_line){
 	//compile pattern
 	regcomp(&(current_source->reg_exp_compiled),current_source->reg_exp,REG_EXTENDED);
 
-	fprintf(stderr,"%d,%d",config_buffer[3].rm_so,config_buffer[3].rm_eo);
 	//Set num_rule_lines so the next lines get parsed as rule lines
 	num_rule_lines = current_source->rule_count;
 
@@ -203,6 +220,11 @@ int process_source_line(char* line, int in_line){
 	return 1;
 }
 
+/**
+ * Processes a record line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
 int process_record_line(char* line, int in_line){
 
 	if(regexec(&regex_record_selector,line,2,config_buffer,0)){
@@ -229,6 +251,11 @@ int process_record_line(char* line, int in_line){
 	return 1;
 }
 
+/**
+ * Processes a collector line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
 int process_collector_line(char* line, int in_line){
 	if(regexec(&regex_collector,line,3,config_buffer,0)){
 		fprintf(stderr,"Collector line %d in config file is malformed:\n%s\n",in_line,line);
@@ -241,6 +268,11 @@ int process_collector_line(char* line, int in_line){
 	return 1;
 }
 
+/**
+ * Processes a export interval line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
 int process_interval_line(char* line, int in_line){
 	if(regexec(&regex_interval,line,2,config_buffer,0)){
 		fprintf(stderr,"Interval line %d in config file is malformed:\n%s\n",in_line,line);
@@ -251,6 +283,11 @@ int process_interval_line(char* line, int in_line){
 	return 1;
 }
 
+/**
+ * Processes an observation domain ID line (source ID line) in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
 int process_odid_line(char* line, int in_line){
 	if(regexec(&regex_odid,line,2,config_buffer,0)){
 		fprintf(stderr,"Source id line %d in config file is malformed:\n%s\n",in_line,line);
@@ -261,6 +298,13 @@ int process_odid_line(char* line, int in_line){
 	return 1;
 }
 
+/**
+ * The main parsing function. Gets a line and decides which type of line this is
+ * and give an error if this type of line may not be in this position.
+ * If it may be there, then the appropriate process_xxx_line function is called.
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
 int process_config_line(char* line, int in_line){
 
 	//Skip empty lines
@@ -316,6 +360,10 @@ int process_config_line(char* line, int in_line){
 	return 1;
 }
 
+/**
+ * Parses a config file and returns its content in a treelike structure
+ * <filename> The path to the file.
+ */
 config_file_descriptor* read_config(char* filename){
 
 
@@ -377,6 +425,11 @@ config_file_descriptor* read_config(char* filename){
 	return current_config_file;
 }
 
+/**
+ * DEBUGGING STUFF
+ */
+
+
 char indent_str [30];
 char* get_indent(int num_spaces){
 	indent_str[num_spaces] = '\0';
@@ -386,27 +439,31 @@ char* get_indent(int num_spaces){
 	return indent_str;
 }
 
+/**
+ * Prints the whole content of a config file descriptor, to check if the config was read thoroughly and
+ * correctly.
+ */
 void echo_config_file(config_file_descriptor* conf){
 	list_node* cur;
 	int indent = 0;
-	fprintf(stderr,"Config file with %d records and %d collectors:\n", conf->record_descriptors->size, conf->collectors->size);
+	printf("Config file with %d records and %d collectors:\n", conf->record_descriptors->size, conf->collectors->size);
 	indent += 2;
-	fprintf(stderr,"%sSend interval: %d\n%sObservation domain id: %d\n", get_indent(indent), conf->interval, get_indent(indent), conf->observation_domain_id);
-	fprintf(stderr,"%sCollector descriptors:\n", get_indent(indent));
+	printf("%sSend interval: %d\n%sObservation domain id: %d\n", get_indent(indent), conf->interval, get_indent(indent), conf->observation_domain_id);
+	printf("%sCollector descriptors:\n", get_indent(indent));
 	indent += 2;
 	for(cur=conf->collectors->first;cur!=NULL;cur=cur->next){
 			collector_descriptor* cur_collector = (collector_descriptor*)cur->data;
-			fprintf(stderr,"%sCollector: %s:%d\n",
+			printf("%sCollector: %s:%d\n",
 					get_indent(indent),
 					cur_collector->ip,
 					cur_collector->port);
 		}
 	indent -= 2;
-	fprintf(stderr,"%sRecords descriptors:\n", get_indent(indent));
+	printf("%sRecords descriptors:\n", get_indent(indent));
 	indent += 2;
 	for(cur=conf->record_descriptors->first;cur!=NULL;cur=cur->next){
 		record_descriptor* cur_record = (record_descriptor*)cur->data;
-		fprintf(stderr,"%s%sRecord with %i sources\n",
+		printf("%s%sRecord with %i sources\n",
 				get_indent(indent),
 				(cur_record->is_multirecord?"Multi":""),
 				cur_record->sources->size);
@@ -419,7 +476,7 @@ void echo_config_file(config_file_descriptor* conf){
 		for(cur2=cur_record->sources->first;cur2!=NULL;cur2=cur2->next){
 			source_descriptor* cur_source = (source_descriptor*)cur2->data;
 
-			fprintf(stderr,"%sSource %s (type %d) with %d rules and pattern: %s\n",
+			printf("%sSource %s (type %d) with %d rules and pattern: %s\n",
 					get_indent(indent),
 					cur_source->source_path,
 					cur_source->source_type,
@@ -434,7 +491,7 @@ void echo_config_file(config_file_descriptor* conf){
 			for(cur3=cur_source->rules->first;cur3!=NULL;cur3=cur3->next){
 				transform_rule* cur_rule = (transform_rule*)cur3->data;
 
-				fprintf(stderr,"%sRule with bytecount %d, information element id %d and enterprise id %d\n",
+				printf("%sRule with bytecount %d, information element id %d and enterprise id %d\n",
 						get_indent(indent),
 						cur_rule->bytecount,
 						cur_rule->ie_id,

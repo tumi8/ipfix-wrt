@@ -20,13 +20,15 @@ int send_buffer_offset = 0;
 
 
 /*
- * Wendet eine regel auf einen inputstring an // Apply a rule to one input string
- * Die Transformfunktion der Regel sollte(!) den String geeignet umwandeln und // The transform funkction of the rule
- * ihn dann an die Position schreiben, die als zweiter Parameter übergeben wurde.
- * Danach schiebt apply_rule den offset um bytecount weiter, sodass der neue offset
- * wieder hinter den belegten Speicher im send_buffer zeigt.
+ *
+ * Apply a rule onto the <input> string
+ * The transform function in the rule should convert the string as desired and
+ * then write it to the buffer pointer that was handed to this transform function.
+ * After the transform function was called, the buffer offset pointerwill
+ * be increased by rule->bytecount such that the pointer again points at the end of the
+ * occupied send buffer.
  */
-//
+
 void apply_rule(char* input,transform_rule* rule){
 
 	//Check if buffer is long enough
@@ -35,29 +37,26 @@ void apply_rule(char* input,transform_rule* rule){
 		exit(-1);
 	}
 
-	//Regel anwenden
+	//Apply transform rule
 	rule->transform_func(input,send_buffer+send_buffer_offset,rule);
 
-	//Offset weiterschieben
+	//Shift buffer offset
 	send_buffer_offset+=rule->bytecount;
 }
 
 /**
- * Nimmt eine eingabe string <input> (z.B. den Inhalt einer proc Datei)
- * wendet das übergebene pattern <regEx> auf sie an
- * Die ersten <num_rules> matches werden mit den übergebenen <rules>
- * transformiert und in den globalen send_buffer geschrieben.
- * <rules> muss dabei eine Liste aus *transform_rules sein mit (mindestens) <num_rules> Nodes
- * Jede rule aus der Liste wird für eine Capturing Group des Patterns verwendet
- * Soll eine Capturing Group gar nicht gesendet werden, muss einfach an der jeweiligen
- * Stelle im array eine Regel mit .bytecount==0 stehen
- *Die Funktion gibt true zurück, falls die Zeile gematcht werden konnte (Pattern traf zu)
- *ansonsten false
+ * Tries to find data in an input and append it to the send buffer.
+ *
+ * Parameters:
+ * input: The input string (for example the content of a /proc file),
+ * source: A source descriptor which defines the pattern and rules for the input (obtained from the config file)
+ * is_multirecord: true, if this source belongs to a multirecord, false otherwise
+ * Returns true (1) if the pattern was found in the input and 0 otherwise.
  */
 int source_to_send_buffer(char* input, source_descriptor* source, boolean is_multirecord){
 
-	//Count number of datasets in the sendbuffer
-	int num_datasets = 0;
+	//Count number of datarecords in the sendbuffer
+	int num_datarecords = 0;
 
 	regex_t* reg_ex = &(source->reg_exp_compiled);
 	int num_rules = source->rule_count;
@@ -73,18 +72,17 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 	do{
 
 		matched = FALSE;
-		//Mit pattern matchen
+		//Do pattern matching
 		if(!regexec(reg_ex, input,num_rules+1, match_buffer, 0)){
-			//if(verbose_level>=3)printf("%s\n",input);
-
+			//Successful match!
 			matched = TRUE;
 
-			//One more dataset in the sendbuffer
-			num_datasets++;
+			//One more data record in the sendbuffer
+			num_datarecords++;
 
-			if(verbose_level>=3) printf("  Found dataset (Num:%d):\n", num_datasets);
+			if(verbose_level>=3) printf("  Found data record (Num:%d):\n", num_datarecords);
 
-			//Über alle Capturing Groups/Rules iterieren
+			//Iterate over all capturing groups/ rules
 			list_node* cur;
 			int i=0;
 			for(cur=source->rules->first;cur!=NULL;cur=cur->next){
@@ -93,22 +91,22 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 				//Count rules
 				i++;
 
-				//Nur was tun, wenn die Regel bytecount > 0
-				if(cur_rule->bytecount!=0){
+				//Only do something if the rule has positive bytecount (0 == ignore)
+				if(cur_rule->bytecount>0){
+					//Null terminate the capturing group so that it is recognized as a string.
+					//We save the char that was replaced with \0, so we can revert it later
+					char swap = input[match_buffer[i].rm_eo]; //save
+					input[match_buffer[i].rm_eo]='\0'; //0 terminate
 
-					//Jede Capturing Group erst nullterminieren, dass sie als Eingabestring benutzt werden kann
-					//Dabei das durch \0 ersetzte Zeichen merken, dass wir es später wieder tauschen können
-					char swap = input[match_buffer[i].rm_eo]; //merken
-					input[match_buffer[i].rm_eo]='\0'; //0 terminieren
-
-					//Regel anwenden! (dies transformiert den Inhalt und schreibt ihn in den send_buffer)
+					//Apply the rule! (transforms the content and append it to the send_buffer)
 					apply_rule(&input[match_buffer[i].rm_so],cur_rule);
 
 					if(verbose_level>=3) printf("    Field %d (%s, %d byte): \"%s\"\n", i,get_description_by_index(cur_rule->transform_id),cur_rule->bytecount, &input[match_buffer[i].rm_so]);
 
-					//Nullterminierung rückgängig machen
+					//Revert null termination
 					input[match_buffer[i].rm_eo] = swap;
 				} else {
+					//Field ignored, bytecount 0 or less
 					if(verbose_level>=3) printf("    Field %d: ignored\n", i);
 				}
 
@@ -125,9 +123,8 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 
 		} else{
 			if(verbose_level >= 2){
-				if(num_datasets==0){
-					printf("No dataset found!\n");
-
+				if(num_datarecords==0){
+					printf("No datarecord found!\n");
 				}
 			}
 		}
@@ -135,15 +132,15 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 	//If this is a multirecord and we found a match, search the next match;
 	}while(is_multirecord && matched);
 
-	if(verbose_level >= 2 && num_datasets > 0){
-		printf("--> Found %d datasets!\n", num_datasets);
+	if(verbose_level >= 2 && num_datarecords > 0){
+		printf("--> Found %d datarecords!\n", num_datarecords);
 	}
-	return num_datasets;
+	return num_datarecords;
 }
 
 /**
  * Writes zeros into the send buffer for a source
- * This method is called if no valid dataset for the resource is found
+ * This method is called if no valid data was found in the resource
  */
 int source_default_to_send_buffer(char* input, source_descriptor* source, boolean is_multirecord){
 
@@ -171,51 +168,46 @@ int source_default_to_send_buffer(char* input, source_descriptor* source, boolea
 
 
 /**
- * Sendet einfach den kompletten send_buffer als ein Datensatz an ipfix.
- *
- * Diese funktion kann/sollte noch verändert werden, sodass sie mehrere
- * datensätze aufeinmal schicken kann.
- *
- * Bis jetzt wird nämlich nach jedem Datensatz sofort ein send() aufgerufen,
- * was unnötigen Paketoverhead bedeuten könnte.
+ * Sends the complete sendbuffer to ipfix.
  *
  */
-int dump_send_buffer_to_ipfix(ipfix_exporter* exporter, uint16_t template_n_id, int num_datasets){
+int dump_send_buffer_to_ipfix(ipfix_exporter* exporter, uint16_t template_id, int num_datarecords){
+	//printf("dump_send_buffer_to_ipfix called with tid=%u\n", template_id);
 
-	//check if buffer can be divided in datasets with the same length
+	//check if buffer can be divided in data records with the same length
 	//If this is not possible, something has gone completely wrong
 	//(shouldn't happen at all)
-	if(send_buffer_offset % num_datasets != 0){
+	if(send_buffer_offset % num_datarecords != 0){
 		fprintf(stderr, "Buffer length error! This should not happen!\n");
 		exit(-1);
 	}
 
-	int dataset_length = send_buffer_offset / num_datasets;
+	int datarecord_length = send_buffer_offset / num_datarecords;
 
 	int i;
 	int ret;
-	//loop over all datasets
-	for(i = 0; i < num_datasets; i++){
+	//loop over all datarecords
+
+	//start
+	ret=ipfix_start_data_set(exporter, (uint16_t)htons(template_id));
+	if (ret != 0 ) {
+		fprintf(stderr, "ipfix_start_data_set failed!\n");
+		return ret;
+	}
+
+	for(i = 0; i < num_datarecords; i++){
 
 		//** Assemble a dataset **
 
-		//start
-		ret=ipfix_start_data_set(exporter, template_n_id);
+		//put Data Record
+		ipfix_put_data_field(exporter, send_buffer+i*datarecord_length, datarecord_length);
+	}
 
-		if (ret != 0 ) {
-			fprintf(stderr, "ipfix_start_data_set failed!\n");
-			return ret;
-		}
+	ret=ipfix_end_data_set(exporter, num_datarecords);
 
-		//put and end
-		ipfix_put_data_field(exporter, send_buffer+i*dataset_length, dataset_length);
-		ret=ipfix_end_data_set(exporter, 1);
-
-		if (ret != 0){
-			fprintf(stderr, "ipfix_end_data_set failed!\n");
-			return ret;
-		}
-
+	if (ret != 0){
+		fprintf(stderr, "ipfix_end_data_set failed!\n");
+		return ret;
 	}
 
 	//Send the data
@@ -226,12 +218,17 @@ int dump_send_buffer_to_ipfix(ipfix_exporter* exporter, uint16_t template_n_id, 
 	return ret;
 }
 
+/**
+ * Processes a whole record by reading data from each source
+ * in that record, writing it to the send buffer and then handing
+ * the send buffer to ipfix.
+ */
 void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
 	//Reset sendbuffer offset
 	send_buffer_offset = 0;
 
-	//Count data sets
-	int num_datasets = 0;
+	//Count data records
+	int num_datarecords = 0;
 
 	//Loop over all sources of this record
 	list_node* cur;
@@ -243,28 +240,34 @@ void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
 
 		//Process the pattern matching, apply the transformation rules
 		//and write the result to send buffer
-		num_datasets = source_to_send_buffer(input, cur_source, record->is_multirecord);
+		num_datarecords = source_to_send_buffer(input, cur_source, record->is_multirecord);
 
-		//A source returned 0 datasets, we will not send it if it is a multirecord
+		//A source returned 0 data records, we will not send it if it is a multirecord
 		//If it is a normal record, we will fill it with zeros.
-		if(num_datasets == 0){
+		if(num_datarecords == 0){
 			if(record->is_multirecord){
-				if(verbose_level>=1)printf("Skipping multirecord, because no dataset found in source %s!\n",cur_source->source_path);
+				if(verbose_level>=1)printf("Skipping multirecord, because no data record found in source %s!\n",cur_source->source_path);
 			} else {
 				source_default_to_send_buffer(input, cur_source, record->is_multirecord);
 			}
 		}
 	}
 
-	//If there were datasets created, dump the send buffer to ipfix
-	if(num_datasets > 0){
-		dump_send_buffer_to_ipfix(exporter,record->template_id,num_datasets);
+	//printf("test %u", num_datarecords);
+	//If there were data records created, dump the send buffer to ipfix
+	if(num_datarecords > 0){
+		dump_send_buffer_to_ipfix(exporter,record->template_id,num_datarecords);
 	}
 }
 
+/**
+ * Takes the parsed content of a config file and tries to send every record that is
+ * described in this config file using IPFIX.
+ */
 void config_to_ipfix(ipfix_exporter* exporter,config_file_descriptor* config){
 	list_node* cur;
 	for(cur=config->record_descriptors->first;cur!=NULL;cur=cur->next){
+		//Loop over all records in this config, process them and dump them to IPFIX
 		record_descriptor* cur_record = (record_descriptor*)cur->data;
 		record_to_ipfix(exporter, cur_record);
 	}

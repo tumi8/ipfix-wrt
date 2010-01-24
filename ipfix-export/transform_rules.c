@@ -8,24 +8,38 @@
 #include "transform_rules.h"
 
 /******************** Concrete transform rules **************/
-//Transformation in 4 byte signed int
+
+/**
+ * Transform rule for transforming a 4 byte signed int
+ */
 void transform_int(char* input, void* buffer, transform_rule* rule){
-	int i = htons(atoi(input));
+	int i = htonl(atoi(input));
 	(*(int*)buffer) = i;
     // der Int-Wert soll in der Adresse gespeichert werden, wo der Zeiger zeigt..
 	//(int*)buffer -> es muss angegeben werden, was für Daten in dem Buffer gespeichert werden
 }
 
+
+/**
+ * Transform rule for transforming a float value
+ */
 void transform_float(char* input, void* buffer, transform_rule* rule){
+	// atof should provide "network byte order" of IEEE float
 	float f = (float)atof(input);
 	(*(float*)buffer) = f;
 }
 
+/**
+ * Transform rule for transforming a double value
+ */
 void transform_double(char* input, void* buffer, transform_rule* rule){
 	double f = atof(input);
 	(*(double*)buffer) = f;
 }
 
+/*
+ * Transform rule for transforming a percentage value
+ */
 void transform_percent(char* input, void* buffer, transform_rule* rule){
 	float f = (float)atof(input);
 	(*(float*)buffer) = f*0.01;
@@ -40,6 +54,9 @@ void transform_string(char* input, void* buffer, transform_rule* rule){
 	(*(char*)buffer) = '\0';
 }
 
+/**
+ * Transform rule for transforming an ip address
+ */
 void transform_ip(char* input, void* buffer, transform_rule* rule){
 	struct in_addr addr;
 	if(!inet_aton(input,&addr)){
@@ -52,15 +69,26 @@ void transform_ip(char* input, void* buffer, transform_rule* rule){
 
 
 
+/**
+ * Transform rule for transforming a mac address (it is transmitted as string)
+ */
 void transform_mac_address(char* input, void* buffer, transform_rule* rule){
  	memcpy(buffer,input,17);
 }
 
+/**
+ * Transform rule for transforming a port
+ */
 void transform_port(char* input, void* buffer, transform_rule* rule){
 	uint16_t dst_port = htons(atoi(input));
 	(*(uint16_t*)buffer)= dst_port;
 }
 
+/******************** Transform rule selection functions **************/
+
+/**
+ * Returns a pointer to a transform function, specified by its <index>
+ */
 transform_func get_rule_by_index(unsigned int index){
 	switch(index){
 		case 0:	return NULL;
@@ -76,6 +104,10 @@ transform_func get_rule_by_index(unsigned int index){
 	return NULL;
 }
 
+/**
+ * Gets the description for a rule, by index.
+ * For verbose messages only.
+ */
 char* get_description_by_index(unsigned int index){
 	switch(index){
 		case 0:	return "ignore";
