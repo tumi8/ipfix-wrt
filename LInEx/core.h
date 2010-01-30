@@ -7,7 +7,6 @@
 
 #ifndef CORE_H_
 #define CORE_H_
-#define LInEx
 #include <stdio.h>
 #include <stdlib.h>
 #include "ipfixlolib/ipfixlolib.h"

@@ -54,7 +54,6 @@ void generate_template_from_record(ipfix_exporter* send_exporter, record_descrip
 			//Only create a template field if the rule has a positive bytecount
 			if(cur_rule->bytecount > 0){
 				//build a template field from this rule
-				printf("%d",cur_rule->enterprise_id);
 				ipfix_put_template_field(send_exporter, record->template_id, cur_rule->ie_id, cur_rule->bytecount, cur_rule->enterprise_id);
 			}
 		}

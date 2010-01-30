@@ -23,7 +23,6 @@ ADD_LIBRARY(ipfixlolib
 	ipfixlolib.c
 	ipfix_names.c
 	ipfix.c
-#	msg.cc
 	msg.c
 )
 

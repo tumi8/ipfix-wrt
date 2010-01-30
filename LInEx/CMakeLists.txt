@@ -12,6 +12,5 @@ ADD_EXECUTABLE(LInEx
 
 
 TARGET_LINK_LIBRARIES(LInEx
-	stdc++
 	ipfixlolib
 )

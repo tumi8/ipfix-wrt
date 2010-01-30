@@ -15,8 +15,6 @@
 void transform_int(char* input, void* buffer, transform_rule* rule){
 	int i = htonl(atoi(input));
 	(*(int*)buffer) = i;
-    // der Int-Wert soll in der Adresse gespeichert werden, wo der Zeiger zeigt..
-	//(int*)buffer -> es muss angegeben werden, was für Daten in dem Buffer gespeichert werden
 }
 
 
@@ -60,7 +58,6 @@ void transform_string(char* input, void* buffer, transform_rule* rule){
 void transform_ip(char* input, void* buffer, transform_rule* rule){
 	struct in_addr addr;
 	if(!inet_aton(input,&addr)){
-		//Fehlerbehandlung falls invalide ip übergeben wurde
 		fprintf(stderr, "convert failed!");
 	}
 	uint32_t ip_addr = htonl(addr.s_addr);
@@ -118,7 +115,6 @@ char* get_description_by_index(unsigned int index){
 		case 5: return "float";
 		case 6: return "double";
 		case 7: return "percent";
-
 	}
 	return "unknown";
 }
