@@ -29,6 +29,7 @@
  jan@petranek.de
  */
 #include "ipfixlolib.h"
+#include "encoding.h"
 #include "msg.h"
 #include <netinet/in.h>
 
@@ -62,6 +63,7 @@ static int ipfix_deinit_template_array(ipfix_exporter *exporter);
 static int ipfix_update_template_sendbuffer(ipfix_exporter *exporter);
 static int ipfix_send_templates(ipfix_exporter* exporter);
 static int ipfix_send_data(ipfix_exporter* exporter);
+static int ipfix_new_file(ipfix_receiving_collector* recvcoll);
 
 #if 0
 static int init_rcv_udp_socket(int lport);
@@ -401,14 +403,11 @@ int ipfix_add_collector(ipfix_exporter *exporter, const char *coll_ip4_addr, int
 			}
 #endif
 			if (proto == DATAFILE) {
-				exporter->collector_arr[i].file = strdup(coll_ip4_addr);
-				int f = creat(coll_ip4_addr, S_IRWXU | S_IRWXG | O_TRUNC);
-				if (f < 0) {
-					msg(MSG_ERROR, "IPFIX: could not open DATAFILE file %s", coll_ip4_addr);
-					exit(1);
-				}
-				exporter->collector_arr[i].fh = f;
-
+				exporter->collector_arr[i].filenum = -1;
+				exporter->collector_arr[i].basename = strdup(coll_ip4_addr);
+				exporter->collector_arr[i].maxfilesize = coll_port;
+				exporter->collector_arr[i].port_number = 0;
+				ipfix_new_file(&exporter->collector_arr[i]); 
 			}
 
 			// now, we may set the collector to valid;
@@ -455,7 +454,7 @@ int ipfix_remove_collector(ipfix_exporter *exporter, char *coll_ip4_addr, int co
 		}
 #endif
 			if (exporter->collector_arr[i].protocol == DATAFILE) {
-				free(exporter->collector_arr[i].file);
+				free(exporter->collector_arr[i].basename);
 			}
 
 			exporter->collector_arr[i].state = C_UNUSED;
@@ -646,6 +645,43 @@ static int ipfix_prepend_header(ipfix_exporter *p_exporter, int data_length,
 	(sendbuf->packet_header).export_time = htonl((uint32_t) export_time);
 
 	return ret;
+}
+/*create a new filehandle and set recvcoll->fh, recvcoll->byteswritten, recvcoll->filenum 
+ * to their new values
+ * returns the newly created filehandle*/
+static int ipfix_new_file(ipfix_receiving_collector* recvcoll){
+	int f = 0;
+	if (recvcoll->fh > 0) close(recvcoll->fh);
+	recvcoll->filenum++;
+	recvcoll->bytes_written = 0;
+
+	/*11 == maximum length of uint32_t including terminating \0*/
+	char *filename = malloc(sizeof(char)*(strlen(recvcoll->basename)+11)); 
+	if(! filename){
+		msg(MSG_ERROR, "IPFIX: could not malloc filename\n");
+		exit(1);
+	}
+	sprintf(filename, "%s%010d", recvcoll->basename, recvcoll->filenum);
+	/*int f = creat(filename, S_IRWXU | S_IRWXG | O_TRUNC);*/
+	while(1){
+		f = open(filename, O_WRONLY | O_CREAT | O_EXCL,
+					 S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP);
+		if (f<0) { 
+			if (errno == EEXIST){ //increase the filenumber and try again
+				recvcoll->filenum++; //if the current file already exists
+				msg(MSG_DEBUG, "Skipping %s\n", filename);
+				sprintf(filename, "%s%010d", recvcoll->basename, recvcoll->filenum);
+				continue;
+			}
+			msg(MSG_ERROR, "IPFIX: could not open DATAFILE file %s", filename);
+			exit(1);
+		}
+		break;
+	}
+	msg(MSG_INFO, "Created new file: %s", filename);
+	free(filename);
+	recvcoll->fh = f;
+	return f;
 }
 
 /*
@@ -1092,8 +1128,7 @@ static int ipfix_send_templates(ipfix_exporter* exporter)
 	int i;
 	int bytes_sent;
 	int expired;
-	uint32_t packet_size;
-	uint32_t n;
+	uint32_t n = 0;
 	// determine, if we need to send the template data:
 	time_t time_now = time(NULL);
 
@@ -1153,10 +1188,11 @@ static int ipfix_send_templates(ipfix_exporter* exporter)
 #ifdef SUPPORT_SCTP
 				switch (exporter->collector_arr[i].state) {
 
-					case C_NEW: // try to connect to the new collector once per second
-					if (time_now > exporter->collector_arr[i].last_reconnect_attempt_time) {
+					case C_NEW: // try to connect to the new collector 
+					// once per second is not useful here, new collectors must be connected quickly
+					//if (time_now > exporter->collector_arr[i].last_reconnect_attempt_time) {
 						ipfix_sctp_reconnect(exporter, i);
-					}
+					//}
 					break;
 					case C_DISCONNECTED: //reconnect attempt if reconnection time reached
 					if(exporter->sctp_reconnect_timer == 0) { // 0 = no more reconnection attempts
@@ -1197,7 +1233,7 @@ static int ipfix_send_templates(ipfix_exporter* exporter)
 							msg(MSG_VDEBUG, "ipfix_send_templates(): %d template bytes sent to SCTP collector %s:%d",
 									bytes_sent, exporter->collector_arr[i].ipv4address, exporter->collector_arr[i].port_number);
 						}
-					}
+					} else DPRINTF("No Template to send to SCTP collector");
 					break;
 					default:
 					msg(MSG_FATAL, "IPFIX: Unknown collector socket state");
@@ -1235,24 +1271,32 @@ static int ipfix_send_templates(ipfix_exporter* exporter)
 					msg(MSG_ERROR, "IPFIX: prepending header failed");
 					return -1;
 				}
+				if((exporter->template_sendbuffer)->packet_header.length > 
+						exporter->collector_arr[i].maxfilesize * 1024)
+							THROWEXCEPTION("Fatal: message length exceeds maximum filesize!");
+
 				fh = exporter->collector_arr[i].fh;
+				if(exporter->collector_arr[i].bytes_written + 
+						ntohs((exporter->template_sendbuffer)->packet_header.length)
+						  >	  (uint64_t)(exporter->collector_arr[i].maxfilesize) * 1024)
+									fh = ipfix_new_file(&exporter->collector_arr[i]);
+
+				exporter->collector_arr[i].bytes_written += 
+							ntohs((exporter->template_sendbuffer)->packet_header.length);
+
 				if (fh < 0)
 					msg(MSG_ERROR, "IPFIX: invalid file handle for DATAFILE file (==0!)");
 				else {
-					packet_size = 0;
-					for (i = 0; i < exporter->template_sendbuffer->current; i++) {
-						packet_size += exporter->template_sendbuffer->entries[i].iov_len;
-					}
-					if (packet_size == 0)
+					if ((exporter->template_sendbuffer)->packet_header.length == 0)
 						THROWEXCEPTION("IPFIX: packet size == 0!");
-					packet_size = htonl(packet_size);
-					if (write(fh, &packet_size, sizeof(packet_size)) != 4)
-						msg(MSG_ERROR, "IPFIX: could not write to DATAFILE file (%s)", strerror(
-								errno));
 					if ((n = writev(fh, exporter->template_sendbuffer->entries,
 							exporter->template_sendbuffer->current)) < 0)
 						msg(MSG_ERROR, "IPFIX: could not write to DATAFILE file");
 				}
+				msg(MSG_DEBUG, "packet_header.length: %d \t bytes_written: %d \t Total: %llu",
+					 ntohs((exporter->template_sendbuffer)->packet_header.length), n,
+					 	exporter->collector_arr[i].bytes_written );
+
 				break;
 
 			default:
@@ -1281,7 +1325,6 @@ static int ipfix_send_data(ipfix_exporter* exporter)
 	int bytes_sent;
 	// send the current data_sendbuffer:
 	int data_length = 0;
-	uint32_t packet_size;
 
 #ifdef SUPPORT_SCTP
 	//time_t time_now = time(NULL);
@@ -1401,22 +1444,30 @@ static int ipfix_send_data(ipfix_exporter* exporter)
 					break;
 #endif
 				case DATAFILE:
+					if((exporter->data_sendbuffer)->packet_header.length > 
+						exporter->collector_arr[i].maxfilesize * 1024)
+							THROWEXCEPTION("Fatal: message length exceeds maximum filesize!");
+					
 					fh = exporter->collector_arr[i].fh;
+					if(exporter->collector_arr[i].bytes_written +
+							 ntohs((exporter->data_sendbuffer)->packet_header.length)
+							 	> (uint64_t)(exporter->collector_arr[i].maxfilesize) * 1024)
+									fh = ipfix_new_file(&exporter->collector_arr[i]);
+
+					exporter->collector_arr[i].bytes_written += 
+								ntohs((exporter->data_sendbuffer)->packet_header.length);
+
 					if (fh < 0)
 						msg(MSG_ERROR, "IPFIX: invalid file handle for DATAFILE file (==0!)");
-					packet_size = 0;
-					for (j = 0; j < exporter->data_sendbuffer->committed; j++) {
-						packet_size += exporter->data_sendbuffer->entries[j].iov_len;
-					}
-					if (packet_size == 0)
+					if ((exporter->data_sendbuffer)->packet_header.length == 0)
 						THROWEXCEPTION("IPFIX: packet size == 0!");
-					packet_size = htonl(packet_size);
-					if (write(fh, &packet_size, sizeof(packet_size)) != 4)
-						msg(MSG_ERROR, "IPFIX: could not write to DATAFILE file (%s)", strerror(
-								errno));
 					else if ((bytes_sent = writev(fh, exporter->data_sendbuffer->entries,
 							exporter->data_sendbuffer->committed)) < 0)
 						msg(MSG_ERROR, "IPFIX: could not write to DATAFILE file");
+
+					msg(MSG_DEBUG, "packet_header.length: %d \t bytes_written: %d \t Total: %llu",
+					 ntohs((exporter->data_sendbuffer)->packet_header.length), bytes_sent,
+					 	exporter->collector_arr[i].bytes_written);
 					break;
 
 				default:
@@ -1826,9 +1877,9 @@ int ipfix_start_optionstemplate_set(ipfix_exporter *exporter, uint16_t template_
  * Parameters:
  *  template_id: the id specified at ipfix_start_template_set()
  *  type: field or scope type (in host byte order)
- *        Note: The enterprise id will only be used, if type has the enterprise bit set.
  *  length: length of the field or scope (in host byte order)
  *  enterprise: enterprise type (in host byte order)
+ * Note: An enterprise-specific field will be encoded if enterprise!=0 or if enterprise bit of type is 1.
  * Note: This function is called after ipfix_start_data_template_set or ipfix_start_option_template_set.
  * Note: This function MAY be replaced by a macro in future versions.
  */
@@ -1840,7 +1891,14 @@ int ipfix_put_template_field(ipfix_exporter *exporter, uint16_t template_id, uin
 	int ret;
 	char *p_pos;
 	char *p_end;
-	int enterprise_bit_set = ipfix_enterprise_flag_set(type);
+	int enterprise_specific = FALSE;
+	
+	/* test if this is an enterprise-specific field */
+	if ((enterprise_id != 0) || ipfix_enterprise_flag_set(type)) {
+		enterprise_specific = TRUE;
+		/* make sure that enterprise bit is set */
+		type |= IPFIX_ENTERPRISE_BIT;
+	}
 
 	found_index = ipfix_find_template(exporter, template_id, T_UNCLEAN);
 
@@ -1867,7 +1925,7 @@ int ipfix_put_template_field(ipfix_exporter *exporter, uint16_t template_id, uin
 
 	DPRINTFL(MSG_VDEBUG, "ipfix_put_template_field: B p_pos %p, p_end %p", p_pos, p_end);
 
-	if (enterprise_bit_set) {
+	if (enterprise_specific) {
 		DPRINTFL(MSG_VDEBUG, "Notice: using enterprise ID %d with data %d", template_id,
 				enterprise_id);
 	}
@@ -1881,7 +1939,7 @@ int ipfix_put_template_field(ipfix_exporter *exporter, uint16_t template_id, uin
 	exporter->template_arr[found_index].fields_length += 4;
 
 	// write the vendor specific id
-	if (enterprise_bit_set) {
+	if (enterprise_specific) {
 		ret = write_unsigned32(&p_pos, p_end, enterprise_id);
 		exporter->template_arr[found_index].fields_length += 4;
 	}
@@ -2001,8 +2059,11 @@ int ipfix_end_template_set(ipfix_exporter *exporter, uint16_t template_id)
 
 	// write the lenght field
 	write_unsigned16(&p_pos, p_end, templ->fields_length);
+
 	// call the template valid
 	templ->state = T_COMMITED;
+	// force resending templates to UDP collectors by resetting transmission time
+	exporter->last_template_transmission_time = 0;
 
 	return 0;
 }
@@ -2090,7 +2151,7 @@ int ipfix_set_sctp_reconnect_timer(ipfix_exporter *exporter, uint32_t timer)
 /* check if the enterprise bit in an ID is set */
 int ipfix_enterprise_flag_set(uint16_t id)
 {
-	return bit_set(id, IPFIX_ENTERPRISE_FLAG);
+	return bit_set(id, IPFIX_ENTERPRISE_BIT);
 }
 
 #ifdef __cplusplus
