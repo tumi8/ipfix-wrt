@@ -13,7 +13,7 @@
 #define DPRINTF(fmt, args...) msg_work(__LINE__, __FILE__, __PRETTY_FUNCTION__, __func__, MSG_DEBUG, fmt, ##args)
 #define DPRINTFL(lvl, fmt, args...) msg_work(__LINE__, __FILE__, __PRETTY_FUNCTION__, __func__, lvl, fmt, ##args)
 
-#define THROWEXCEPTION(fmt, args...) { msg_work(__LINE__, __FILE__, __PRETTY_FUNCTION__, __func__, MSG_FATAL, fmt, ##args); exit(-1); }
+#define THROWEXCEPTION(fmt, args...)  do { msg_work(__LINE__, __FILE__, __PRETTY_FUNCTION__, __func__, MSG_FATAL, fmt, ##args); exit(-1); } while (0)
 
 #define msg(lvl, fmt, args...) msg_work(__LINE__, __FILE__, __PRETTY_FUNCTION__, __func__, lvl, fmt, ##args)
 
