@@ -1,0 +1,195 @@
+This is LInEx - Lightweight Information Export
+Released under GPL2
+Project website: http://vermont.berlios.de/linex
+
+------------
+REQUIREMENTS
+------------
+
+LInEx has been tested on Linux and embedded Linux systems.
+
+For compilation, GNU C/C++ compiler and standard libraries are required,
+as well as the following Ubuntu/Debian packages (or equivalent packages
+of other Linux distributions):
+ - cmake 
+ - crosscompilers for building embedded Linux executable (e.g. OpenWRT SDK)
+
+The following packages are optional:
+ - cmake-curses-gui (ccmake, interactive user interface of cmake)
+
+
+-------------------------
+BUILDING LINUX EXECUTABLE
+-------------------------
+
+This project uses cmake for setting platform- and user-specific compile 
+options. In order to generate the Makefile for actual compilation, you 
+need to call in the root of the source directory:
+
+$ cmake .
+
+In order to change the default compile options, use:
+
+$ cmake -D OPTION1=value1 -D OPTION2=value2 ...
+
+To get a list of the most important options, call:
+
+$ cmake -LH
+   
+As a user-friendly alternative, you can use the interactive user interface.
+Please note that this requires the package cmake-curses-gui, if you are using
+Ubuntu/Debian.
+
+$ ccmake .
+
+If some libraries are installed in custom directories, use:
+
+$ cmake -D CMAKE_PREFIX_PATH=/custom/directory1:/custom/directory2
+
+After successfully generating the Makefile with cmake, start the 
+compilation with:
+
+$ make
+
+
+---------------------------------
+CROSSCOMPILING FOR EMBEDDED LINUX
+---------------------------------
+
+For crosscompiling, the default gcc and g++ compilers need to be replaced by
+the corresponding crosscompilers. This can be achieved with cmake options:
+
+$ cmake -DCMAKE_C_COMPILER=/path/to/alt/gcc -DCMAKE_CXX_COMPILER=/path/to/alt/g++
+
+If you have previously called cmake with other settings, you need to manually 
+remove the file CMakeCache.txt before calling cmake with the new compiler 
+options.
+
+After calling make, an executable for the embedded Linux platform is built.
+In order to change between default compilers and crosscompilers, you may adapt
+and use the shell scripts compileX86.sh and compileMIPS.sh.
+
+In the following, we give some more detailed instructions for OpenWRT (see
+http://openwrt.org). Different OpenWRT releases exist. In order to run the 
+program on an OpenWRT router, you need to crosscompile with the OpenWRT SDK of 
+the same release.
+
+You can download the sources of an OpenWRT release from the OpenWRT subversion
+repository. For OpenWRT 8.09 (kamikaze), this can be done as done as follows:
+
+$ svn co svn://svn.openwrt.org/openwrt/branches/8.09 openwrt
+
+Since OpenWRT is not built by default, you need to call make menuconfig and
+enable the SDK bullet. You must also change the target system and profile if 
+your router does not match the default settings.
+
+$ cd openwrt
+$ make menuconfig
+$ make
+
+The crosscompilers can be found in staging_dir/toolchain-X/bin (where X depends
+on the target system). In the case of OpenWRT 8.09, the gcc and g++ 
+replacements for Linksys routers are mipsel-linux-uclibc-gcc and 
+mipsel-linux-uclibc-g++.
+
+
+-----------------------
+USAGE AND CONFIGURATION
+-----------------------
+
+In order to run LInEx, a configuration file is needed which specifies the 
+modules to be used and their parameters. At the moment, the configuration file
+must be called "config.conf" and must be placed in the directory from which
+LInEx is executed. 
+
+$ ./LInEx
+
+You can get less or more output to stdout by using the -vX option, with X 
+being a number between 0 and 4. Use Ctrl-C to stop LInEx.
+
+The format of the configuration file is line based. Leading tabs and 
+whitespaces are ignored. Lines starting with "#" are considered as comments 
+and thus ignored by the configuration file parser.
+
+The configuration is structured using seven different keywords written in 
+upper-case letters: COLLECTOR, INTERVAL, ODID, RECORD, MULTIRECORD, FILE,
+and COMMAND. These keywords always appear at the beginning of a line.
+
+COLLECTOR is followed by the IP address and port number of an IPFIX collector
+to which the data is exported. It is possible to configure multiple collectors.
+Example:
+
+COLLECTOR 127.0.0.1:4739
+COLLECTOR 192.168.1.99:4739
+
+INTERVAL is followed by an integer value indicating the interval in seconds
+which is used to periodically export the data. Default value is 30. Example:
+
+INTERVAL 10
+
+ODID is followed by the IPFIX Observation Domain ID used in the IPFIX 
+Messages. Default value is 1. Example:
+
+ODID 100
+
+RECORD defines a record containing field values from different sources. 
+MULTIRECORD defines a sequence of records containing multiple values of the 
+same type extracted from a single source. A source is either a text file or 
+the output of a shell command, specified with FILE or COMMAND, respectively.
+A regular expression is applied to extract capture groups from the source,
+which then are converted into record field value.
+
+FILE is followed by the path to the file, the number of capture groups in the 
+regular expressions, and the regular expression applied to the file. For each
+capture group, an additional line is read from the config file which defines
+the field length, the transformation to binary format, the IPFIX Information
+Element ID and enterprise number of the field. Here is an example with five
+capture groups read from the proc file /proc/loadavg:
+
+FILE "/proc/loadavg", 5, "([0-9]+\.[0-9]+)[ \t]+([0-9]+\.[0-9]+)[ \t]+([0-9]+\.[0-9]+)[ \t]+([0-9]+)\/([0-9]+)"
+        #load percentage in the last one minute
+        4, 5, 1001, 10
+        #load percentage in the last five minute
+        4, 5, 1002, 220
+        #load percentage in the last ten minute
+        4, 5, 1003, 0
+        #number of running processes
+        4, 1, 1004, 0
+        #total number of processes
+        4, 1, 1005, 0
+
+Each capture group is transformed into a field of 4 bytes. The transformation
+rule is specified with an identifier from 0 to 7:
+
+id  transformation                       possible field lengths
+0   ignore capture groupe                0
+1   ascii to integer                     2 or 4
+2   NULL-terminated string               any
+3   ascii to IPv4 address                4
+4   ascii to MAC address                 6
+5   ascii to float                       4
+6   ascii to double()                    8
+7   ascii to percent (float / 100)       4
+
+COMMAND has the same syntax as FILE, yet the first argument does not point to
+a text file but contains a shell command. Example:
+
+COMMAND "free", 6 , "Mem\:[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)"
+                #total
+                4, 1, 0, 0
+                #used
+                4, 1, 0, 0
+                #free
+                4, 1, 0, 0
+                #shared
+                4, 1, 0, 0
+                #buffers
+                4, 1, 0, 0
+                #cached
+                4, 1, 0, 0
+
+The keywords FILE and COMMAND always appear after RECORD or MULTIRECORD. As 
+RECORD supports multpile sources, multiple occurrences of FILE and COMMAND 
+may appear after RECORD. The appearance of a new RECORD or MULTIRECORD 
+keyword starts a new record.
+
