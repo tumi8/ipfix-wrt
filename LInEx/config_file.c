@@ -1,4 +1,24 @@
 /*
+ * LInEx - Lightweight Information Export
+ * Copyright (C) 2010 Vermont Project (http://vermont.berlios.de)
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
+ */
+
+/*
  * config_file.c
  *
  *  Created on: 22.11.2009
@@ -141,7 +161,7 @@ int process_rule_line(char* line, int in_line){
 	int transform_id = extract_int_from_regmatch(&config_buffer[2],line);
 	transform_rule* tr = create_transform_rule();
 	tr->bytecount = (uint16_t)extract_int_from_regmatch(&config_buffer[1],line);
-	tr->transform_func = get_rule_by_index(transform_id);
+	tr->transform_func = get_rule_by_index(transform_id, tr->bytecount);
 	tr->transform_id = transform_id;
 	tr->ie_id = extract_int_from_regmatch(&config_buffer[3],line);
 	tr->enterprise_id = extract_int_from_regmatch(&config_buffer[4],line);

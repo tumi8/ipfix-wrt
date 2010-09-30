@@ -98,13 +98,11 @@ USAGE AND CONFIGURATION
 -----------------------
 
 In order to run LInEx, a configuration file is needed which specifies the 
-modules to be used and their parameters. At the moment, the configuration file
-must be called "config.conf" and must be placed in the directory from which
-LInEx is executed. 
+modules to be used and their parameters. 
 
-$ ./LInEx
+$ ./LInEx -f <config_file>
 
-You can get less or more output to stdout by using the -vX option, with X 
+You can get less or more output to stdout by using the -v X option, with X 
 being a number between 0 and 4. Use Ctrl-C to stop LInEx.
 
 The format of the configuration file is line based. Leading tabs and 
@@ -161,15 +159,15 @@ FILE "/proc/loadavg", 5, "([0-9]+\.[0-9]+)[ \t]+([0-9]+\.[0-9]+)[ \t]+([0-9]+\.[
 Each capture group is transformed into a field of 4 bytes. The transformation
 rule is specified with an identifier from 0 to 7:
 
-id  transformation                       possible field lengths
-0   ignore capture groupe                0
-1   ascii to integer                     2 or 4
-2   NULL-terminated string               any
-3   ascii to IPv4 address                4
-4   ascii to MAC address                 6
-5   ascii to float                       4
-6   ascii to double()                    8
-7   ascii to percent (float / 100)       4
+  id  transformation                       possible field lengths
+  0   ignore capture group                 0
+  1   ascii to integer                     2 or 4
+  2   ascii to unsigned integer            2 or 4
+  3   ascii to IPv4 address                4
+  4   ascii to MAC address                 6
+  5   ascii to float/double                4 or 8
+  6   ascii to percent (int of *100)       2
+  7   NULL-terminated string               >=2
 
 COMMAND has the same syntax as FILE, yet the first argument does not point to
 a text file but contains a shell command. Example:
@@ -190,6 +188,11 @@ COMMAND "free", 6 , "Mem\:[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]
 
 The keywords FILE and COMMAND always appear after RECORD or MULTIRECORD. As 
 RECORD supports multpile sources, multiple occurrences of FILE and COMMAND 
-may appear after RECORD. The appearance of a new RECORD or MULTIRECORD 
-keyword starts a new record.
+may appear after RECORD. If one of these sources is not available, the 
+corresponding record fields are filled with zero values. 
+
+The appearance of a new RECORD or MULTIRECORD keyword starts a new record.
+
+Have a look at the sample configuration files provided with LInEx source code
+to get a complete example.
 

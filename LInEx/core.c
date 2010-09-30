@@ -1,21 +1,43 @@
 /*
+ * LInEx - Lightweight Information Export
+ * Copyright (C) 2010 Vermont Project (http://vermont.berlios.de)
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
+ */
+
+/*
  * core.c
  *
  *  Created on: 22.11.2009
  *      Author: kami
  */
+
 //#include "core.h"
 #include "config_file.h"
 #include "ipfixlolib/msg.h"
 #include "ipfix_templates.h"
 #include "ipfix_data.h"
-
+#include <unistd.h>
 
 
 int verbose_level = STANDARD_VERBOSE_LEVEL;
 regex_t param_regex;
 regex_t long_param_regex;
 regmatch_t param_matches[3];
+char* config_file = NULL;
 
 /**
  * Takes all collectors from config file <conf>
@@ -32,52 +54,39 @@ void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
 	}
 }
 
-void process_normal_param(char* param_name, int param_param){
-	if(!strcasecmp(param_name,"v")){
-		if(param_param > 4){
-			fprintf(stderr,"Verbose level must be between 0 and 4!\n");
-			exit(-1);
-		}
-		verbose_level = param_param;
-		printf("Verbose level set to %d!\n",verbose_level);
-	} else {
-		fprintf(stderr,"Unknown command line parameter -%s\n",param_name);
-		exit(-1);
-	}
-}
-
-void process_long_param(char* param_name){
-	if(!strcasecmp(param_name,"help")){
-		printf("Usage:\n LInEx [-vX]\n-vX sets the verbose level to X, X must be between 0 and 4. 0 is no command line output, 4 is very much!\n\nDon't forget to write an appropriate config.conf file before starting LInEx.\n");
-		exit(0);
-	} else {
-		fprintf(stderr,"Unknown command line parameter --%s\n",param_name);
-		exit(-1);
-	}
-
-}
-void parse_command_line_parameter(char* param){
-	if(!regexec(&param_regex,param,3,param_matches,0)){
-		char* name = extract_string_from_regmatch(&param_matches[1],param);
-		int parameter = extract_int_from_regmatch(&param_matches[2],param);
-		process_normal_param(name,parameter);
-	} else if(!regexec(&long_param_regex,param,3,param_matches,0)){
-		char* name = extract_string_from_regmatch(&param_matches[1],param);
-		process_long_param(name);
-	} else {
-		fprintf(stderr,"Unknown command line parameter %s",param);
-		exit(-1);
-	}
+void usage(){
+	printf("Usage: LInEx -f <config_file> [-v <X>]\n");
+	printf("-f <config_file>     specifies configuration file\n");
+	printf("-v <X>               sets verbosity level (X=0,1,2,3,4, default=1)\n");
 }
 
 void parse_command_line_parameters(int argc, char **argv){
-	regcomp(&param_regex,"^\\-([a-z])([0-9]+)$",REG_EXTENDED);
-	regcomp(&long_param_regex,"^\\-\\-([a-z]+)$",REG_EXTENDED);
-	int i;
-	for(i=1;i<argc;i++){
-		parse_command_line_parameter(argv[i]);
-	}
+	/* parse command line */
+	int c;
+	while ((c=getopt(argc, argv, "hf:v:")) != -1) {
 
+		switch (c) {
+
+			case 'f':
+				config_file = optarg;
+				break;
+
+			case 'v':
+				verbose_level = atoi(optarg);
+				break;
+
+			case 'h':
+			default:
+				/* print usage and quit vermont, if unknow switch */
+				usage();
+				exit(1);
+		}
+	}
+	if (config_file == NULL)
+	{
+		usage();
+		exit(1);
+	}
 }
 
 /**
@@ -89,7 +98,7 @@ int main(int argc, char **argv)
 	parse_command_line_parameters(argc,argv);
 
 	//Read config file
-	config_file_descriptor* conf = read_config("config.conf");
+	config_file_descriptor* conf = read_config(config_file);
 	//Init exporter
 	ipfix_exporter* send_exporter;
 	int ret = ipfix_init_exporter(conf->observation_domain_id, &send_exporter);
