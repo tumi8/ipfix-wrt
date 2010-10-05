@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "ipfixlolib/ipfixlolib.h"
-#include "ipfixlolib/ipfix.h"
+#include "ipfixlolib/msg.h"
 #include <unistd.h>
 #include <string.h>
 #include <regex.h>

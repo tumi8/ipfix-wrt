@@ -53,8 +53,7 @@ void apply_rule(char* input,transform_rule* rule){
 
 	//Check if buffer is long enough
 	if(send_buffer_offset+rule->bytecount>SEND_BUFFER_SIZE){
-		fprintf(stderr, "Send buffer overflow! More than %d bytes in the send buffer. Please enlarge the send buffer.\n",SEND_BUFFER_SIZE);
-		exit(-1);
+		THROWEXCEPTION("Send buffer overflow! More than %d bytes in the send buffer. Please enlarge the send buffer.",SEND_BUFFER_SIZE);
 	}
 
 	//Apply transform rule
@@ -81,12 +80,8 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 	regex_t* reg_ex = &(source->reg_exp_compiled);
 	int num_rules = source->rule_count;
 
-	if(verbose_level>=2){
-		printf("Processing source \"%s\" (%d rules)\n", source->source_path, source->rule_count);
-		if(verbose_level>=4){
-			printf("Source content:\n%s\n",input);
-		}
-	}
+	msg(MSG_DEBUG, "Processing source \"%s\" (%d rules)", source->source_path, source->rule_count);
+	msg(MSG_VDEBUG, "Source content:\n%s",input);
 
 	boolean matched;
 	do{
@@ -100,7 +95,7 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 			//One more data record in the sendbuffer
 			num_datarecords++;
 
-			if(verbose_level>=3) printf("  Found data record (Num:%d):\n", num_datarecords);
+			msg(MSG_DEBUG, "  Found data record (Num: %d):", num_datarecords);
 
 			//Iterate over all capturing groups/ rules
 			list_node* cur;
@@ -121,13 +116,13 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 					//Apply the rule! (transforms the content and append it to the send_buffer)
 					apply_rule(&input[match_buffer[i].rm_so],cur_rule);
 
-					if(verbose_level>=3) printf("    Field %d (%s, %d byte): \"%s\"\n", i,get_description_by_index(cur_rule->transform_id),cur_rule->bytecount, &input[match_buffer[i].rm_so]);
+					msg(MSG_DEBUG, "    Field %d (%s, %d byte): \"%s\"", i, get_description_by_index(cur_rule->transform_id), cur_rule->bytecount, &input[match_buffer[i].rm_so]);
 
 					//Revert null termination
 					input[match_buffer[i].rm_eo] = swap;
 				} else {
 					//Field ignored, bytecount 0 or less
-					if(verbose_level>=3) printf("    Field %d: ignored\n", i);
+					msg(MSG_DEBUG, "    Field %d: ignored\n", i);
 				}
 
 			}
@@ -142,18 +137,16 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 
 
 		} else{
-			if(verbose_level >= 2){
-				if(num_datarecords==0){
-					printf("No datarecord found!\n");
-				}
+			if(num_datarecords==0){
+				msg(MSG_INFO, "No datarecord found!");
 			}
 		}
 
 	//If this is a multirecord and we found a match, search the next match;
-	}while(is_multirecord && matched);
+	} while(is_multirecord && matched);
 
-	if(verbose_level >= 2 && num_datarecords > 0){
-		printf("--> Found %d datarecords!\n", num_datarecords);
+	if(num_datarecords > 0){
+		msg(MSG_INFO, "--> Found %d datarecords!", num_datarecords);
 	}
 	return num_datarecords;
 }
@@ -162,7 +155,7 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
  * Writes zeros into the send buffer for a source
  * This method is called if no valid data was found in the resource
  */
-int source_default_to_send_buffer(char* input, source_descriptor* source, boolean is_multirecord){
+int source_default_to_send_buffer(source_descriptor* source, boolean is_multirecord){
 
 
 	//Count number of bytes to set to zero
@@ -180,7 +173,7 @@ int source_default_to_send_buffer(char* input, source_descriptor* source, boolea
 	send_buffer_offset+=num_bytes;
 
 	//Verbose...
-	if(verbose_level>=2)printf("Skipping %d bytes, because no dataset found in source %s!\n",num_bytes, source->source_path);
+	msg(MSG_INFO, "Skipping %d bytes, because no dataset found in source %s!",num_bytes, source->source_path);
 
 	return num_bytes;
 
@@ -198,8 +191,7 @@ int dump_send_buffer_to_ipfix(ipfix_exporter* exporter, uint16_t template_id, in
 	//If this is not possible, something has gone completely wrong
 	//(shouldn't happen at all)
 	if(send_buffer_offset % num_datarecords != 0){
-		fprintf(stderr, "Buffer length error! This should not happen!\n");
-		exit(-1);
+		THROWEXCEPTION("Buffer length error! This should not happen!");
 	}
 
 	int datarecord_length = send_buffer_offset / num_datarecords;
@@ -211,7 +203,7 @@ int dump_send_buffer_to_ipfix(ipfix_exporter* exporter, uint16_t template_id, in
 	//start
 	ret=ipfix_start_data_set(exporter, (uint16_t)htons(template_id));
 	if (ret != 0 ) {
-		fprintf(stderr, "ipfix_start_data_set failed!\n");
+		msg(MSG_ERROR, "ipfix_start_data_set failed!");
 		return ret;
 	}
 
@@ -226,14 +218,14 @@ int dump_send_buffer_to_ipfix(ipfix_exporter* exporter, uint16_t template_id, in
 	ret=ipfix_end_data_set(exporter, num_datarecords);
 
 	if (ret != 0){
-		fprintf(stderr, "ipfix_end_data_set failed!\n");
+		msg(MSG_ERROR, "ipfix_end_data_set failed!");
 		return ret;
 	}
 
 	//Send the data
 	ret=ipfix_send(exporter);
 	if (ret != 0)
-		fprintf(stderr, "ipfix_send failed!\n");
+		msg(MSG_ERROR, "ipfix_send failed!");
 
 	return ret;
 }
@@ -258,6 +250,16 @@ void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
 		//Load the data from the source (for example a proc file)
 		char* input = load_data_from_source(cur_source);
 
+		//If there is not input, we fill it with zeros
+		if (input == NULL) {
+			if(record->is_multirecord){
+				msg(MSG_INFO, "Skipping multirecord, because no data found in source %s!",cur_source->source_path);
+			} else {
+				source_default_to_send_buffer(cur_source, record->is_multirecord);
+			}
+			continue;
+		}
+
 		//Process the pattern matching, apply the transformation rules
 		//and write the result to send buffer
 		num_datarecords = source_to_send_buffer(input, cur_source, record->is_multirecord);
@@ -266,9 +268,9 @@ void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
 		//If it is a normal record, we will fill it with zeros.
 		if(num_datarecords == 0){
 			if(record->is_multirecord){
-				if(verbose_level>=1)printf("Skipping multirecord, because no data record found in source %s!\n",cur_source->source_path);
+				msg(MSG_INFO, "Skipping multirecord, because no data record found in source %s!",cur_source->source_path);
 			} else {
-				source_default_to_send_buffer(input, cur_source, record->is_multirecord);
+				source_default_to_send_buffer(cur_source, record->is_multirecord);
 			}
 		}
 	}

@@ -29,6 +29,12 @@
 
 /******************** Concrete transform rules **************/
 
+//Transform rule which just copies N bytes
+void transform_none(char* input, void* buffer, transform_rule* rule){
+	memcpy((char*)buffer,input,rule->bytecount);
+}
+
+
 /**
  * Transform rule for transforming a 2 or 4 byte signed int
  */
@@ -40,7 +46,7 @@ void transform_int(char* input, void* buffer, transform_rule* rule){
 		int32_t i = htonl(atoi(input));
 		(*(int32_t*)buffer) = i;
 	} else {
-		fprintf(stderr, "transform_int: invalid length!\n");
+		msg(MSG_ERROR, "transform_int: invalid length!");
 	}
 }
 
@@ -56,7 +62,7 @@ void transform_uint(char* input, void* buffer, transform_rule* rule){
 		uint32_t i = htonl(atoi(input));
 		(*(uint32_t*)buffer) = i;
 	} else {
-		fprintf(stderr, "transform_uint: invalid length!\n");
+		msg(MSG_ERROR, "transform_uint: invalid length!");
 	}
 }
 
@@ -73,7 +79,7 @@ void transform_float(char* input, void* buffer, transform_rule* rule){
 		double f = atof(input);
 		(*(double*)buffer) = f;
 	} else {
-		fprintf(stderr, "transform_float: invalid length!\n");
+		msg(MSG_ERROR, "transform_float: invalid length!");
 	}
 }
 
@@ -83,7 +89,7 @@ void transform_float(char* input, void* buffer, transform_rule* rule){
  */
 void transform_percent(char* input, void* buffer, transform_rule* rule){
 	if(rule->bytecount != 2) {
-		fprintf(stderr, "transform_percent: invalid length!\n");
+		msg(MSG_ERROR, "transform_percent: invalid length!");
 		return;
 	}
 	int16_t i = htons((int16_t)(atof(input)*100));
@@ -96,7 +102,7 @@ void transform_percent(char* input, void* buffer, transform_rule* rule){
 //If the string is shorter, the field will be padded with zeros
 void transform_string(char* input, void* buffer, transform_rule* rule){
 	if(rule->bytecount < 2) {
-		fprintf(stderr, "transform_string: invalid length!\n");
+		msg(MSG_ERROR, "transform_string: invalid length!");
 		return;
 	}
 	strncpy((char*)buffer,input,rule->bytecount-1);
@@ -109,12 +115,13 @@ void transform_string(char* input, void* buffer, transform_rule* rule){
  */
 void transform_ip(char* input, void* buffer, transform_rule* rule){
 	if(rule->bytecount != 4) {
-		fprintf(stderr, "transform_ip: invalid length!\n");
+		msg(MSG_ERROR, "transform_ip: invalid length!");
 		return;
 	}
 	struct in_addr addr;
 	if(!inet_aton(input,&addr)){
-		fprintf(stderr, "convert failed!\n");
+		msg(MSG_ERROR, "convert failed!");
+		return;
 	}
 	uint32_t ip_addr = htonl(addr.s_addr);
 	(*(uint32_t*)buffer)= ip_addr;
@@ -125,7 +132,7 @@ void transform_ip(char* input, void* buffer, transform_rule* rule){
  */
 void transform_mac_address(char* input, void* buffer, transform_rule* rule){
 	if(rule->bytecount != 6) {
-		fprintf(stderr, "transform_mac_address: invalid length!\n");
+		msg(MSG_ERROR, "transform_mac_address: invalid length!");
 		return;
 	}
 	int i;
@@ -145,45 +152,45 @@ void transform_mac_address(char* input, void* buffer, transform_rule* rule){
  */
 transform_func get_rule_by_index(unsigned int index, uint16_t bytecount){
 	switch(index){
-		case 0:	return NULL;
+		case 0:	return transform_none;
 		case 1:	if((bytecount != 2) && (bytecount != 4)) {
-				fprintf(stderr, "transform 1 (int) requires field length 2 or 4!\n");
-				exit(-1);
+				msg(MSG_FATAL, "Transformation 1 (int) requires field length 2 or 4! Continuing with 0 (none).");
+				return transform_none;
 			}
 			return transform_int;
 		case 2:	if((bytecount != 2) && (bytecount != 4)) {
-				fprintf(stderr, "transform 2 (unsigned) requires field length 2 or 4!\n");
-				exit(-1);
+				msg(MSG_FATAL, "Transformation 2 (unsigned) requires field length 2 or 4! Continuing with 0 (none).");
+				return transform_none;
 			}
 			return transform_uint;
 		case 3:	if(bytecount != 4) {
-				fprintf(stderr, "transform 3 (IPv4) requires field length 4!\n");
-				exit(-1);
+				msg(MSG_FATAL, "Transformation 3 (IPv4) requires field length 4! Continuing with 0 (none).");
+				return transform_none;
 			}
 			return transform_ip;
 		case 4:	if(bytecount != 6) {
-				fprintf(stderr, "transform 4 (mac) requires field length 6!\n");
-				exit(-1);
+				msg(MSG_FATAL, "Transformation 4 (mac) requires field length 6! Continuing with 0 (none).");
+				return transform_none;
 			}
 			return transform_mac_address;
 		case 5: if((bytecount != 4) && (bytecount != 8)) {
-				fprintf(stderr, "transform 5 (float) requires field length 4 or 8!\n");
-				exit(-1);
+				msg(MSG_FATAL, "Transformation 5 (float) requires field length 4 or 8! Continuing with 0 (none).");
+				return transform_none;
 			}
 			return transform_float;
 		case 6: if(bytecount != 2) {
-				fprintf(stderr, "transform 6 (percent) requires field length 2!\n");
-				exit(-1);
+				msg(MSG_FATAL, "Transformation 6 (percent) requires field length 2! Continuing with 0 (none).");
+				return transform_none;
 			}
 			return transform_percent;
 		case 7: if(bytecount < 2) {
-				fprintf(stderr, "transform 7 (string) requires field length >=2!\n");
-				exit(-1);
+				msg(MSG_FATAL, "Transformation 7 (string) requires field length >=2! Continuing with 0 (none).\n");
+				return transform_none;
 			}
 			return transform_string;
 
 	}
-	return NULL;
+	THROWEXCEPTION("get_rule_by_index fall through, this should never happen");
 }
 
 /**
@@ -192,7 +199,7 @@ transform_func get_rule_by_index(unsigned int index, uint16_t bytecount){
  */
 char* get_description_by_index(unsigned int index){
 	switch(index){
-		case 0:	return "ignore";
+		case 0:	return "none";
 		case 1:	return "int";
 		case 2:	return "uint";
 		case 3:	return "ip addr";

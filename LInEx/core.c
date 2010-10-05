@@ -33,7 +33,6 @@
 #include <unistd.h>
 
 
-int verbose_level = STANDARD_VERBOSE_LEVEL;
 regex_t param_regex;
 regex_t long_param_regex;
 regmatch_t param_matches[3];
@@ -50,14 +49,14 @@ void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
 	for(cur = conf->collectors->first;cur!=NULL;cur=cur->next){
 		collector_descriptor* cur_descriptor = (collector_descriptor*)cur->data;
 		int ret = ipfix_add_collector(exporter, cur_descriptor->ip, cur_descriptor->port, UDP);
-		printf("Added collector %s:%d (return: %d)\n", cur_descriptor->ip,cur_descriptor->port,  ret);
+		msg(MSG_INFO, "Added collector %s:%d (return: %d)", cur_descriptor->ip,cur_descriptor->port,  ret);
 	}
 }
 
 void usage(){
 	printf("Usage: LInEx -f <config_file> [-v <X>]\n");
 	printf("-f <config_file>     specifies configuration file\n");
-	printf("-v <X>               sets verbosity level (X=0,1,2,3,4, default=1)\n");
+	printf("-v <X>               sets verbosity level (X=0,1,2,3,4,5 default=2)\n");
 }
 
 void parse_command_line_parameters(int argc, char **argv){
@@ -72,7 +71,7 @@ void parse_command_line_parameters(int argc, char **argv){
 				break;
 
 			case 'v':
-				verbose_level = atoi(optarg);
+				msg_setlevel(atoi(optarg));
 				break;
 
 			case 'h':
@@ -104,26 +103,24 @@ int main(int argc, char **argv)
 	int ret = ipfix_init_exporter(conf->observation_domain_id, &send_exporter);
 
 	if (ret != 0) {
-		fprintf(stderr, "ipfix_init_exporter failed!\n");
-		exit(-1);
+		THROWEXCEPTION("ipfix_init_exporter failed!\n");
 	}
 
 	//Add collectors from config file
 	init_collectors(conf,send_exporter);
 
 	//Generate templates
-	printf("Generating templates from config...");
-	fflush(NULL);
+	msg(MSG_INFO, "Generating templates from config");
 	generate_templates_from_config(send_exporter,conf);
-	printf(" DONE!\n");
+	msg(MSG_DIALOG, "LInEx is up and running. Press Ctrl-C to exit.");
 
 	//Periodically, send the configured datasets
-	int i = 0;
+	unsigned long i = 0;
 	while(1){
 		i++;
-		if(verbose_level>=1)printf("Starting export %d...\n",i);
+		msg(MSG_INFO, "Starting export %d...",i);
 		config_to_ipfix(send_exporter,conf);
-		if(verbose_level>=1)printf("Export finished!\n");
+		msg(MSG_INFO, "Export finished!");
 		sleep(conf->interval);
 	}
 

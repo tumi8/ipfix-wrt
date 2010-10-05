@@ -11,7 +11,7 @@
 #include <stdarg.h>
 
 static int msg_level=MSG_DEFAULT;
-static char *MSG_TAB[]={ "FATAL  ", "TRUMANBOX", "ERROR  ", "DEBUG  ", "INFO   ", 0};
+static char *MSG_TAB[]={ "FATAL", "LINEX", "ERROR", "INFO ", "DEBUG", "VDEBUG", 0};
 
 void msg_setlevel(int l)
 {
@@ -33,12 +33,17 @@ void msg_work(const int line, const char* file, const char* pv, const char* func
                 return;
         } else {
                 va_list args;
+#ifdef DEBUG
                 printf("%s in %s:%d: ", MSG_TAB[level], file, line);
+#else
+                printf("%s: ", MSG_TAB[level]);
+#endif
                 va_start(args, fmt);
                 vprintf(fmt, args);
                 va_end(args);
                 printf("\n");
         }
+
 }
 
 
