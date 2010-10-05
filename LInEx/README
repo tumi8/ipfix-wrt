@@ -103,15 +103,16 @@ modules to be used and their parameters.
 $ ./LInEx -f <config_file>
 
 You can get less or more output to stdout by using the -v X option, with X 
-being a number between 0 and 4. Use Ctrl-C to stop LInEx.
+being a number between 0 and 5. Use Ctrl-C to stop LInEx.
 
 The format of the configuration file is line based. Leading tabs and 
 whitespaces are ignored. Lines starting with "#" are considered as comments 
 and thus ignored by the configuration file parser.
 
 The configuration is structured using seven different keywords written in 
-upper-case letters: COLLECTOR, INTERVAL, ODID, RECORD, MULTIRECORD, FILE,
-and COMMAND. These keywords always appear at the beginning of a line.
+upper-case letters: COLLECTOR, INTERVAL, ODID, XMLFILE, RECORD, MULTIRECORD, 
+XMLELEMENT, FILE, and COMMAND. These keywords always appear at the beginning 
+of a line.
 
 COLLECTOR is followed by the IP address and port number of an IPFIX collector
 to which the data is exported. It is possible to configure multiple collectors.
@@ -134,33 +135,33 @@ RECORD defines a record containing field values from different sources.
 MULTIRECORD defines a sequence of records containing multiple values of the 
 same type extracted from a single source. A source is either a text file or 
 the output of a shell command, specified with FILE or COMMAND, respectively.
-A regular expression is applied to extract capture groups from the source,
+A regular expression is applied to extract capturing groups from the source,
 which then are converted into record field value.
 
-FILE is followed by the path to the file, the number of capture groups in the 
+FILE is followed by the path to the file, the number of capturing groups in the 
 regular expressions, and the regular expression applied to the file. For each
-capture group, an additional line is read from the config file which defines
+capturing group, an additional line is read from the config file which defines
 the field length, the transformation to binary format, the IPFIX Information
 Element ID and enterprise number of the field. Here is an example with five
-capture groups read from the proc file /proc/loadavg:
+capturing groups read from the proc file /proc/loadavg:
 
 FILE "/proc/loadavg", 5, "([0-9]+\.[0-9]+)[ \t]+([0-9]+\.[0-9]+)[ \t]+([0-9]+\.[0-9]+)[ \t]+([0-9]+)\/([0-9]+)"
-        #load percentage in the last one minute
-        4, 5, 1001, 10
-        #load percentage in the last five minute
-        4, 5, 1002, 220
-        #load percentage in the last ten minute
-        4, 5, 1003, 0
-        #number of running processes
-        4, 1, 1004, 0
-        #total number of processes
-        4, 1, 1005, 0
+  #load percentage in the last one minute
+  4, 5, 1001, 10
+  #load percentage in the last five minute
+  4, 5, 1002, 220
+  #load percentage in the last ten minute
+  4, 5, 1003, 0
+  #number of running processes
+  4, 1, 1004, 0
+  #total number of processes
+  4, 1, 1005, 0
 
-Each capture group is transformed into a field of 4 bytes. The transformation
+Each capturing group is transformed into a field of 4 bytes. The transformation
 rule is specified with an identifier from 0 to 7:
 
   id  transformation                       possible field lengths
-  0   ignore capture group                 0
+  0   no transformation                    any
   1   ascii to integer                     2 or 4
   2   ascii to unsigned integer            2 or 4
   3   ascii to IPv4 address                4
@@ -173,18 +174,18 @@ COMMAND has the same syntax as FILE, yet the first argument does not point to
 a text file but contains a shell command. Example:
 
 COMMAND "free", 6 , "Mem\:[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)"
-                #total
-                4, 1, 0, 0
-                #used
-                4, 1, 0, 0
-                #free
-                4, 1, 0, 0
-                #shared
-                4, 1, 0, 0
-                #buffers
-                4, 1, 0, 0
-                #cached
-                4, 1, 0, 0
+  #total
+  4, 1, 0, 0
+  #used
+  4, 1, 0, 0
+  #free
+  4, 1, 0, 0
+  #shared
+  4, 1, 0, 0
+  #buffers
+  4, 1, 0, 0
+  #cached
+  4, 1, 0, 0
 
 The keywords FILE and COMMAND always appear after RECORD or MULTIRECORD. As 
 RECORD supports multpile sources, multiple occurrences of FILE and COMMAND 
@@ -192,6 +193,39 @@ may appear after RECORD. If one of these sources is not available, the
 corresponding record fields are filled with zero values. 
 
 The appearance of a new RECORD or MULTIRECORD keyword starts a new record.
+
+XMLFILE is followed by a name of a local file in which status information can
+be stored locally in XML format. Example:
+
+XMLFILE log.xml
+
+The XML file is periodically updated with the same interval as for the IPFIX
+export. The content of the XML file is defined by XMLELEMENT keywords. Each
+occurrence of XMLELEMENT is followed by a root XML element. The following
+lines define sources starting with FILE or COMMAND, just like for RECORD
+and MULTIRECORD. 
+
+In the case of XML, the capturing groups are not transformed into any binary
+format but directly used as content of XML elements which appear below the
+root XML element. The names of the XML elements appear in separate lines.
+Example:
+
+XMLELEMENT ifconfig
+  COMMAND "ifconfig", 2, "(\w+)[ \t]+Link[ \t]+encap:\w+[ \t]+HWaddr[ \t]+([a-eA-E0-9:]+)"
+    #interface name
+    if-name
+    #mac address 
+    mac-address
+
+This yields the following XML output:
+
+<ifconfig>
+<if-name>xxx</if-name>
+<mac-address>yyy</mac-address>
+...
+</ifconfig>
+
+Multiple sources may follow the XMLELEMENT keyword. 
 
 Have a look at the sample configuration files provided with LInEx source code
 to get a complete example.

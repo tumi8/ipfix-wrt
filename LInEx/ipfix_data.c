@@ -146,7 +146,7 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 	} while(is_multirecord && matched);
 
 	if(num_datarecords > 0){
-		msg(MSG_INFO, "--> Found %d datarecords!", num_datarecords);
+		msg(MSG_DEBUG, "--> Found %d datarecords!", num_datarecords);
 	}
 	return num_datarecords;
 }
@@ -227,6 +227,7 @@ int dump_send_buffer_to_ipfix(ipfix_exporter* exporter, uint16_t template_id, in
 	if (ret != 0)
 		msg(MSG_ERROR, "ipfix_send failed!");
 
+	msg(MSG_INFO, "Exported IPFIX message with %d data records", num_datarecords);
 	return ret;
 }
 
@@ -283,14 +284,135 @@ void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
 }
 
 /**
+ * Processes a whole record by reading data from each source
+ * in that record, writing it to XML
+ */
+void record_to_xml(xmlelement_descriptor* element, FILE* xmlfh){
+	//Count elements
+	int num_elements = 0;
+
+	fprintf(xmlfh, "<%s>\n", element->name);
+
+	//Loop over all sources of this record
+	list_node* cur;
+	for(cur=element->sources->first;cur!=NULL;cur=cur->next){
+		source_descriptor* cur_source = (source_descriptor*)cur->data;
+
+		//Load the data from the source (for example a proc file)
+		char* input = load_data_from_source(cur_source);
+
+		//If there is not input, we fill it with zeros
+		if (input == NULL) {
+			msg(MSG_INFO, "Skipping %d XML elements because no data found in source %s!", cur_source->rule_count, cur_source->source_path);
+			continue;
+		}
+
+		//Process the pattern matching, apply the transformation rules
+		//and write the result to send buffer
+		num_elements = source_to_xml(input, cur_source, xmlfh);
+
+		//A source returned 0 data records, we will not send it if it is a multirecord
+		//If it is a normal record, we will fill it with zeros.
+		if(num_elements == 0){
+			msg(MSG_INFO, "Skipping %d XML elements, because no capturing groups found in source %s!", cur_source->rule_count, cur_source->source_path);
+		}
+	}
+
+	fprintf(xmlfh, "</%s>\n", element->name);
+}
+
+/**
+ * Tries to find data in an input and output it as XML elements
+ *
+ * Parameters:
+ * input: The input string (for example the content of a /proc file),
+ * source: A source descriptor which defines the pattern and rules for the input (obtained from the config file)
+ * Returns true (1) if the pattern was found in the input and 0 otherwise.
+ */
+int source_to_xml(char* input, source_descriptor* source, FILE* xmlfh){
+
+	//Total number of XML elements
+	int total = 0;
+
+	regex_t* reg_ex = &(source->reg_exp_compiled);
+	int num_elements = source->rule_count;
+
+	msg(MSG_DEBUG, "Processing source \"%s\" (%d rules)", source->source_path, source->rule_count);
+	msg(MSG_VDEBUG, "Source content:\n%s",input);
+
+	boolean matched;
+	do{
+
+		matched = 0;
+		//Do pattern matching
+		if(!regexec(reg_ex, input,num_elements+1, match_buffer, 0)){
+			//Successful match!
+			matched = 1;
+
+			//Iterate over all capturing groups
+			list_node* cur;
+			int i=0;
+			for(cur=source->rules->first;cur!=NULL;cur=cur->next){
+				char* name = (char*)cur->data;
+
+				//Count elements
+				i++;
+				total++;
+				//Null terminate the capturing group so that it is recognized as a string.
+				//We save the char that was replaced with \0, so we can revert it later
+				char swap = input[match_buffer[i].rm_eo]; //save
+				input[match_buffer[i].rm_eo]='\0'; //0 terminate
+
+				msg(MSG_DEBUG, "    XML element <%s>: \"%s\"", name, &input[match_buffer[i].rm_so]);
+				
+				fprintf(xmlfh, "<%s>%s</%s>\n", name, &input[match_buffer[i].rm_so], name);
+
+				//Revert null termination
+				input[match_buffer[i].rm_eo] = swap;
+
+			}
+
+			//Shift input, so we get the next match
+			input = &input[match_buffer[0].rm_eo];
+
+			//Infinite loop protection, if the match was empty (an empty pattern like \\w*) was used, we break
+			if(match_buffer[0].rm_eo==0){
+				break;
+			}
+		}
+
+	//If this is a multirecord and we found a match, search the next match;
+	} while(matched);
+
+	if(total > 0){
+		msg(MSG_INFO, "Wrote %d XML elements into file.", total);
+	}
+
+	return total;
+}
+
+/**
  * Takes the parsed content of a config file and tries to send every record that is
  * described in this config file using IPFIX.
  */
-void config_to_ipfix(ipfix_exporter* exporter,config_file_descriptor* config){
+void config_to_ipfix(ipfix_exporter* exporter, config_file_descriptor* config){
 	list_node* cur;
 	for(cur=config->record_descriptors->first;cur!=NULL;cur=cur->next){
 		//Loop over all records in this config, process them and dump them to IPFIX
 		record_descriptor* cur_record = (record_descriptor*)cur->data;
 		record_to_ipfix(exporter, cur_record);
+	}
+}
+
+/**
+ * Takes the parsed content of a config file and tries to generate XML output
+ */
+void config_to_xml(FILE* xmlfh, config_file_descriptor* config){
+	rewind(xmlfh);
+	list_node* cur;
+	for(cur=config->xmlelement_descriptors->first;cur!=NULL;cur=cur->next){
+		//Loop over all records in this config, process them and dump them to IPFIX
+		xmlelement_descriptor* cur_record = (xmlelement_descriptor*)cur->data;
+		record_to_xml(cur_record, xmlfh);
 	}
 }

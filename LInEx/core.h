@@ -88,10 +88,12 @@ typedef int boolean;
  */
 typedef struct{
 	list* record_descriptors;
+	list* xmlelement_descriptors;
 	list* collectors;
 	int interval;
 	uint32_t observation_domain_id;
 	int verbose;
+	char* xmlfile;
 } config_file_descriptor;
 
 /**
@@ -113,6 +115,16 @@ typedef struct rec_d{
 	uint16_t template_id;
 	int is_multirecord;
 } record_descriptor;
+
+
+/**
+ * A descriptor for one XML root element which
+ * contains a list of sources to gather data from.
+ */
+typedef struct xml_d{
+	list* sources;
+	char* name;
+} xmlelement_descriptor;
 
 
 /*

@@ -30,6 +30,7 @@
 #include "ipfixlolib/msg.h"
 #include "ipfix_templates.h"
 #include "ipfix_data.h"
+#include <time.h>
 #include <unistd.h>
 
 
@@ -100,10 +101,10 @@ int main(int argc, char **argv)
 
 	//Read config file
 	config_file_descriptor* conf = read_config(config_file);
+
 	//Init exporter
 	ipfix_exporter* send_exporter;
 	int ret = ipfix_init_exporter(conf->observation_domain_id, &send_exporter);
-
 	if (ret != 0) {
 		THROWEXCEPTION("ipfix_init_exporter failed!\n");
 	}
@@ -116,13 +117,30 @@ int main(int argc, char **argv)
 	generate_templates_from_config(send_exporter,conf);
 	msg(MSG_DIALOG, "LInEx is up and running. Press Ctrl-C to exit.");
 
+	//Open XML file
+	FILE* xmlfh = NULL;
+	if(conf->xmlfile != NULL) {
+		xmlfh = fopen(conf->xmlfile, "w");
+		if (xmlfh == NULL)
+			THROWEXCEPTION("Could not open XML file %s", conf->xmlfile);
+	}
+
 	//Periodically, send the configured datasets
 	unsigned long i = 0;
+	time_t now;
+	char timestr[20];
+
 	while(1){
 		i++;
-		msg(MSG_INFO, "Starting export %d...",i);
-		config_to_ipfix(send_exporter,conf);
-		msg(MSG_INFO, "Export finished!");
+		now = time(NULL);
+		strftime(timestr, 20, "%X", localtime(&now));
+		msg(MSG_DIALOG, "Export status at %s (round %d)", timestr, i);
+		msg(MSG_INFO, "Exporting IPFIX messages...");
+		config_to_ipfix(send_exporter, conf);
+		if(xmlfh != NULL) {
+			msg(MSG_INFO, "Updating XML file %s", conf->xmlfile);
+			config_to_xml(xmlfh, conf);
+		}
 		sleep(conf->interval);
 	}
 
