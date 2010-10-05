@@ -59,7 +59,7 @@ void generate_template_from_record(ipfix_exporter* send_exporter, record_descrip
 
 	//Start the template
 	//(1 record => 1 template)
-	ipfix_start_template_set(send_exporter, record->template_id, num_rules);
+	ipfix_start_template(send_exporter, record->template_id, num_rules);
 
 	//Loop over all sources
 	list_node* cur;
@@ -81,7 +81,7 @@ void generate_template_from_record(ipfix_exporter* send_exporter, record_descrip
 	}
 
 	//Finish the template
-	ipfix_end_template_set(send_exporter, record->template_id);
+	ipfix_end_template(send_exporter, record->template_id);
 }
 
 /**

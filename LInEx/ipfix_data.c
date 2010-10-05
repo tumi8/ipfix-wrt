@@ -86,11 +86,11 @@ int source_to_send_buffer(char* input, source_descriptor* source, boolean is_mul
 	boolean matched;
 	do{
 
-		matched = FALSE;
+		matched = 0;
 		//Do pattern matching
 		if(!regexec(reg_ex, input,num_rules+1, match_buffer, 0)){
 			//Successful match!
-			matched = TRUE;
+			matched = 1;
 
 			//One more data record in the sendbuffer
 			num_datarecords++;
