@@ -23,6 +23,7 @@
 #define msg(lvl, fmt, args...) msg_work(__LINE__, __FILE__, __PRETTY_FUNCTION__, __func__, lvl, fmt, ##args)
 
 void msg_setlevel(int l);
+int msg_getlevel();
 void msg_work(const int, const char*, const char*, const char*, const int, const char *, ...);
 
 #endif

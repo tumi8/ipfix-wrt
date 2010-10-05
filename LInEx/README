@@ -8,11 +8,11 @@ REQUIREMENTS
 
 LInEx has been tested on Linux and embedded Linux systems.
 
-For compilation, GNU C/C++ compiler and standard libraries are required,
+For compilation, GNU C compiler and standard libraries are required,
 as well as the following Ubuntu/Debian packages (or equivalent packages
 of other Linux distributions):
  - cmake 
- - crosscompilers for building embedded Linux executable (e.g. OpenWrt SDK)
+ - crosscompiler for building embedded Linux executable (e.g. OpenWrt SDK)
 
 The following packages are optional:
  - cmake-curses-gui (ccmake, interactive user interface of cmake)
@@ -56,10 +56,10 @@ $ make
 CROSSCOMPILING FOR EMBEDDED LINUX
 ---------------------------------
 
-For crosscompiling, the default gcc and g++ compilers need to be replaced by
-the corresponding crosscompilers. This can be achieved with cmake options:
+For crosscompiling, the default gcc compiler needs to be replaced by the
+corresponding crosscompiler. This can be achieved with cmake options:
 
-$ cmake -DCMAKE_C_COMPILER=/path/to/alt/gcc -DCMAKE_CXX_COMPILER=/path/to/alt/g++
+$ cmake -DCMAKE_C_COMPILER=/path/to/alt/gcc
 
 If you have previously called cmake with other settings, you need to manually 
 remove the file CMakeCache.txt before calling cmake with the new compiler 

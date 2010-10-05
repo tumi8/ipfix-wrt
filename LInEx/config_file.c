@@ -92,8 +92,7 @@ source_descriptor* create_source_descriptor(){
 
 	//Multirecords may NOT contain more than one source
 	if(current_record->is_multirecord && current_record->sources->size > 1){
-		fprintf(stderr, "Found a multirecord with more than one source! Multirecords may only contain one source!\n");
-		exit(-1);
+		THROWEXCEPTION("Found a multirecord with more than one source! Multirecords may only contain one source!");
 	}
 	return current_source;
 }
@@ -155,8 +154,7 @@ unsigned int extract_int_from_regmatch(regmatch_t* match, char* input){
 int process_rule_line(char* line, int in_line){
 
 	if(regexec(&regex_rule,line,5,config_buffer,0)){
-		fprintf(stderr,"Malformed line (line %d)!\nExpecting rule line, but found this line:\n%s\n", in_line,line);
-		exit(-1);
+		THROWEXCEPTION("Malformed line (line %d)!\nExpecting rule line, but found this line:\n%s", in_line,line);
 	}
 	int transform_id = extract_int_from_regmatch(&config_buffer[2],line);
 	transform_rule* tr = create_transform_rule();
@@ -186,8 +184,7 @@ int process_rule_line(char* line, int in_line){
 int process_source_line(char* line, int in_line){
 
 	if(regexec(&regex_source_selector,line,2,config_buffer,0)){
-		fprintf(stderr,"Line %d in config file is malformed!\nParser expects a rule line that starts with a source type descriptor (e.g. \"FILE:\")\nThis line was found:\n%s\n",in_line,line);
-		exit(-1);
+		THROWEXCEPTION("Line %d in config file is malformed!\nParser expects a rule line that starts with a source type descriptor (e.g. \"FILE:\")\nThis line was found:\n%s",in_line,line);
 	}
 
 	//Create new source descriptor
@@ -200,15 +197,13 @@ int process_source_line(char* line, int in_line){
 	} else if(!strcasecmp(&line[config_buffer[1].rm_so],"COMMAND")){
 		current_source->source_type = SOURCE_TYPE_COMMAND;
 	} else {
-		fprintf(stderr,"Unrecognized type selector \"%s\" in line %d\n",&line[config_buffer[1].rm_so],in_line);
-		exit(-1);
+		THROWEXCEPTION("Unrecognized type selector \"%s\" in line %d",&line[config_buffer[1].rm_so],in_line);
 	}
 
 	//store line with config data in dataline
 	char* dataline = &line[config_buffer[1].rm_eo+1];
 	if(regexec(&regex_source_suffix,dataline,5,config_buffer,0)){
-		fprintf(stderr,"Unrecognized config line (Line %d):\n%s",in_line,dataline);
-		exit(-1);
+		THROWEXCEPTION("Unrecognized config line (Line %d):\n%s",in_line,dataline);
 	}
 
 	//Check which capturing group to use for source index, if the 2nd exists use this one
@@ -248,8 +243,7 @@ int process_source_line(char* line, int in_line){
 int process_record_line(char* line, int in_line){
 
 	if(regexec(&regex_record_selector,line,2,config_buffer,0)){
-		fprintf(stderr,"Record line %d in config file is malformed (not starting with a record type selector):\n%s\n",in_line,line);
-		exit(-1);
+		THROWEXCEPTION("Record line %d in config file is malformed (not starting with a record type selector):\n%s",in_line,line);
 	}
 
 	//Create new record descriptor
@@ -263,8 +257,7 @@ int process_record_line(char* line, int in_line){
 	} else if(!strcasecmp(&line[config_buffer[1].rm_so],"MULTIRECORD")) {
 		current_record->is_multirecord = 1;
 	} else {
-		fprintf(stderr,"Unrecognized record type selector \"%s\" in line %d\n",&line[config_buffer[1].rm_so],in_line);
-		exit(-1);
+		THROWEXCEPTION("Unrecognized record type selector \"%s\" in line %d",&line[config_buffer[1].rm_so],in_line);
 	}
 
 	parse_mode = PARSE_MODE_SOURCE_DESCR;
@@ -278,8 +271,7 @@ int process_record_line(char* line, int in_line){
  */
 int process_collector_line(char* line, int in_line){
 	if(regexec(&regex_collector,line,3,config_buffer,0)){
-		fprintf(stderr,"Collector line %d in config file is malformed:\n%s\n",in_line,line);
-		exit(-1);
+		THROWEXCEPTION("Collector line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	char* ip = extract_string_from_regmatch(&config_buffer[1],line);
@@ -295,8 +287,7 @@ int process_collector_line(char* line, int in_line){
  */
 int process_interval_line(char* line, int in_line){
 	if(regexec(&regex_interval,line,2,config_buffer,0)){
-		fprintf(stderr,"Interval line %d in config file is malformed:\n%s\n",in_line,line);
-		exit(-1);
+		THROWEXCEPTION("Interval line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	current_config_file->interval = extract_int_from_regmatch(&config_buffer[1],line);
@@ -310,8 +301,7 @@ int process_interval_line(char* line, int in_line){
  */
 int process_odid_line(char* line, int in_line){
 	if(regexec(&regex_odid,line,2,config_buffer,0)){
-		fprintf(stderr,"Source id line %d in config file is malformed:\n%s\n",in_line,line);
-		exit(-1);
+		THROWEXCEPTION("Source id line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	current_config_file->observation_domain_id = extract_int_from_regmatch(&config_buffer[1],line);
@@ -349,8 +339,7 @@ int process_config_line(char* line, int in_line){
 			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
 				process_odid_line(line, in_line);
 			} else {
-				fprintf(stderr,"Line %d is malformed (expecting record descriptor, interval descriptor, or collector descriptor):\n%s\n",in_line,line);
-				exit(-1);
+				THROWEXCEPTION("Line %d is malformed (expecting record descriptor, interval descriptor, or collector descriptor):\n%s",in_line,line);
 			}
 			break;
 		case PARSE_MODE_SOURCE_DESCR:
@@ -371,8 +360,7 @@ int process_config_line(char* line, int in_line){
 			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
 				process_odid_line(line, in_line);
 			} else {
-				fprintf(stderr,"Line %d is malformed (expecting record descriptor, collector descriptor, interval descriptor, or source descriptor from previous record):\n%s\n",in_line,line);
-				exit(-1);
+				THROWEXCEPTION("Line %d is malformed (expecting record descriptor, collector descriptor, interval descriptor, or source descriptor from previous record):\n%s",in_line,line);
 			}
 			break;
 	}
@@ -398,8 +386,7 @@ config_file_descriptor* read_config(char* filename){
 	//File öffnen und checken obs alles geklappt hat
 	FILE* fp = fopen(filename, "r");
 	if (fp == NULL){
-		fprintf(stderr, "Reading from config file failed!\n");
-		exit(-1);
+		THROWEXCEPTION("Reading from config file failed!");
 	}
 
 	//Set parse mode to record (the parser first expects a record line)
@@ -420,26 +407,27 @@ config_file_descriptor* read_config(char* filename){
 
 	//Missing rule lines at the end of file
 	if(num_rule_lines>0){
-		fprintf(stderr, "Reached end of config file, but still %d rules missing for the last source!\n", num_rule_lines);
-		exit(-1);
+		THROWEXCEPTION("Reached end of config file, but still %d rules missing for the last source!", num_rule_lines);
 	}
 
 	//No records found
 	if(current_config_file->record_descriptors->size==0){
-		fprintf(stderr, "Reached end of config file, but no record found (empty config?)\n");
-		exit(-1);
+		THROWEXCEPTION("Reached end of config file, but no record found (empty config?)");
 	}
 
 	//Missing sources at the end of file
 	if(current_record->sources->size==0){
-		fprintf(stderr, "Reached end of config file, but the last record has no sources!\n");
-		exit(-1);
+		THROWEXCEPTION("Reached end of config file, but the last record has no sources!");
 	}
 
 	//No collectors defined
 	if(current_config_file->collectors->size==0){
-		fprintf(stderr, "Reached end of config file, but no collector definitions found\n");
-		exit(-1);
+		THROWEXCEPTION("Reached end of config file, but no collector definitions found");
+	}
+
+	if (msg_getlevel() >= MSG_VDEBUG) {
+		msg(MSG_VDEBUG, "Parsed configuration:");
+		echo_config_file(current_config_file);
 	}
 
 	return current_config_file;

@@ -18,6 +18,11 @@ void msg_setlevel(int l)
 	msg_level = l;
 }
 
+int msg_getlevel()
+{
+	return msg_level;
+}
+
 /*
  the main logging routine
 
