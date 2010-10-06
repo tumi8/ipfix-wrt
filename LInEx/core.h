@@ -88,12 +88,13 @@ typedef int boolean;
  */
 typedef struct{
 	list* record_descriptors;
-	list* xmlelement_descriptors;
+	list* xmlrecord_descriptors;
 	list* collectors;
-	int interval;
+	unsigned interval;
 	uint32_t observation_domain_id;
 	int verbose;
 	char* xmlfile;
+	char* xmlpostprocessing;
 } config_file_descriptor;
 
 /**
@@ -124,7 +125,7 @@ typedef struct rec_d{
 typedef struct xml_d{
 	list* sources;
 	char* name;
-} xmlelement_descriptor;
+} xmlrecord_descriptor;
 
 
 /*

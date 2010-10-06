@@ -32,12 +32,15 @@
 #include "ipfix_data.h"
 #include <time.h>
 #include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
 
 
 regex_t param_regex;
 regex_t long_param_regex;
 regmatch_t param_matches[3];
 char* config_file = NULL;
+pid_t childpid = -1;
 
 /**
  * Takes all collectors from config file <conf>
@@ -91,11 +94,37 @@ void parse_command_line_parameters(int argc, char **argv){
 	}
 }
 
+void sigwait_handler(int signal)
+{
+	int status;
+	pid_t pid;
+
+        //Wait for child without blocking
+        if ((pid = waitpid(-1, &status, WNOHANG)) < 0) 
+	{
+		//msg(MSG_VDEBUG, "waitpid failed.");
+		return;
+	}
+	//Return if this is not the XML postprocessing child
+	if (pid != childpid) return; 
+
+	childpid = -1;
+}
+
 /**
  * Test main methode
  */
 int main(int argc, char **argv)
 {
+	//Initialize signal handler
+	struct sigaction new_sa;
+	new_sa.sa_handler = sigwait_handler;
+	sigemptyset(&new_sa.sa_mask);
+	new_sa.sa_flags = 0;
+	if (sigaction(SIGCHLD, &new_sa, NULL) == -1) {
+		THROWEXCEPTION("Could not install signal handler.");
+	}
+
 	//Process command line parameters
 	parse_command_line_parameters(argc,argv);
 
@@ -127,6 +156,7 @@ int main(int argc, char **argv)
 
 	//Periodically, send the configured datasets
 	unsigned long i = 0;
+	unsigned timeout;
 	time_t now;
 	char timestr[20];
 
@@ -140,8 +170,26 @@ int main(int argc, char **argv)
 		if(xmlfh != NULL) {
 			msg(MSG_INFO, "Updating XML file %s", conf->xmlfile);
 			config_to_xml(xmlfh, conf);
+			//Optional XML postprocessing
+			if(conf->xmlpostprocessing != NULL) {
+				//Kill old XML postprocessing child if it is still alive
+				if(childpid != -1) {
+					msg(MSG_FATAL, "XML postprocessing has not terminated in time. Killing it.");
+					kill(childpid, SIGKILL);
+				}
+				//Create new XML postprocessing child
+				if((childpid = fork()) == -1) {
+					msg(MSG_FATAL, "Could not fork. XML postprocessing skipped.");
+				}
+				if(childpid == 0) {
+					msg(MSG_INFO, "Trigger XML postprocessing.");
+					int ret = system(conf->xmlpostprocessing);
+					exit(ret);
+				}
+			}
 		}
-		sleep(conf->interval);
+		timeout = conf->interval;
+		while(timeout = sleep(timeout)) {}
 	}
 
 	//Dead code :)

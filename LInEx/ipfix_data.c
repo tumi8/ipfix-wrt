@@ -287,7 +287,7 @@ void record_to_ipfix(ipfix_exporter* exporter, record_descriptor* record){
  * Processes a whole record by reading data from each source
  * in that record, writing it to XML
  */
-void record_to_xml(xmlelement_descriptor* element, FILE* xmlfh){
+void record_to_xml(xmlrecord_descriptor* element, FILE* xmlfh){
 	//Count elements
 	int num_elements = 0;
 
@@ -410,9 +410,10 @@ void config_to_ipfix(ipfix_exporter* exporter, config_file_descriptor* config){
 void config_to_xml(FILE* xmlfh, config_file_descriptor* config){
 	rewind(xmlfh);
 	list_node* cur;
-	for(cur=config->xmlelement_descriptors->first;cur!=NULL;cur=cur->next){
+	for(cur=config->xmlrecord_descriptors->first;cur!=NULL;cur=cur->next){
 		//Loop over all records in this config, process them and dump them to IPFIX
-		xmlelement_descriptor* cur_record = (xmlelement_descriptor*)cur->data;
+		xmlrecord_descriptor* cur_record = (xmlrecord_descriptor*)cur->data;
 		record_to_xml(cur_record, xmlfh);
 	}
+	fflush(xmlfh);
 }

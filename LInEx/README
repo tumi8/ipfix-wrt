@@ -110,9 +110,9 @@ whitespaces are ignored. Lines starting with "#" are considered as comments
 and thus ignored by the configuration file parser.
 
 The configuration is structured using seven different keywords written in 
-upper-case letters: COLLECTOR, INTERVAL, ODID, XMLFILE, RECORD, MULTIRECORD, 
-XMLELEMENT, FILE, and COMMAND. These keywords always appear at the beginning 
-of a line.
+upper-case letters: COLLECTOR, INTERVAL, ODID, XMLFILE, XMLPOSTPROCESSING, 
+RECORD, MULTIRECORD, XMLELEMENT, FILE, and COMMAND. These keywords always 
+appear at the beginning of a line.
 
 COLLECTOR is followed by the IP address and port number of an IPFIX collector
 to which the data is exported. It is possible to configure multiple collectors.
@@ -197,20 +197,25 @@ The appearance of a new RECORD or MULTIRECORD keyword starts a new record.
 XMLFILE is followed by a name of a local file in which status information can
 be stored locally in XML format. Example:
 
-XMLFILE log.xml
+XMLFILE "log.xml"
+
+XMLPOSTPROCESSING is followed by a command which is executed after updating
+the XML file. Example:
+
+XMLPOSTPROCESSING "cat log.xml"
 
 The XML file is periodically updated with the same interval as for the IPFIX
-export. The content of the XML file is defined by XMLELEMENT keywords. Each
-occurrence of XMLELEMENT is followed by a root XML element. The following
-lines define sources starting with FILE or COMMAND, just like for RECORD
-and MULTIRECORD. 
+export. The content of the XML file is defined by XMLRECORD keywords. Each
+occurrence of XMLRECORD is followed by the name of the root XML element. The 
+following lines define sources starting with FILE or COMMAND, just like for 
+RECORD and MULTIRECORD. 
 
 In the case of XML, the capturing groups are not transformed into any binary
 format but directly used as content of XML elements which appear below the
 root XML element. The names of the XML elements appear in separate lines.
 Example:
 
-XMLELEMENT ifconfig
+XMLRECORD ifconfig
   COMMAND "ifconfig", 2, "(\w+)[ \t]+Link[ \t]+encap:\w+[ \t]+HWaddr[ \t]+([a-eA-E0-9:]+)"
     #interface name
     if-name
@@ -225,7 +230,8 @@ This yields the following XML output:
 ...
 </ifconfig>
 
-Multiple sources may follow the XMLELEMENT keyword. 
+Multiple sources may follow the XMLRECORD keyword. 
+
 
 Have a look at the sample configuration files provided with LInEx source code
 to get a complete example.

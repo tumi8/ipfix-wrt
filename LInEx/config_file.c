@@ -53,24 +53,26 @@ regex_t regex_collector;
 regex_t regex_interval;
 regex_t regex_odid;
 regex_t regex_xmlfile;
-regex_t regex_xmlelement_selector;
+regex_t regex_xmlpostprocessing;
+regex_t regex_xmlrecord_selector;
 regex_t regex_xml_rule;
 config_file_descriptor* current_config_file;
 record_descriptor* current_record;
 source_descriptor* current_source;
-xmlelement_descriptor* current_xmlelement;
+xmlrecord_descriptor* current_xmlrecord;
 regmatch_t config_buffer[5];
 
 //Constructor for config file descriptor
 config_file_descriptor* create_config_file_descriptor(){
 	current_config_file = (config_file_descriptor*) malloc(sizeof(config_file_descriptor));
 	current_config_file->record_descriptors = list_create();
-	current_config_file->xmlelement_descriptors = list_create();
+	current_config_file->xmlrecord_descriptors = list_create();
 	current_config_file->collectors = list_create();
 	current_config_file->verbose = STANDARD_VERBOSE_LEVEL;
 	current_config_file->interval = STANDARD_SEND_INTERVAL;
 	current_config_file->observation_domain_id = OBSERVATION_DOMAIN_STANDARD_ID;
 	current_config_file->xmlfile = NULL;
+	current_config_file->xmlpostprocessing = NULL;
 	return current_config_file;
 }
 
@@ -104,7 +106,7 @@ source_descriptor* create_source_descriptor(){
 			break;
 		case PARSE_MODE_XML_SOURCE_DESCR:
 		case PARSE_MODE_XML_SOURCE_OR_MAIN:
-			list_insert(current_xmlelement->sources,current_source);
+			list_insert(current_xmlrecord->sources,current_source);
 			break;
 		default:
 			THROWEXCEPTION("parse_mode %i in create_source_descriptor, this should never happen", parse_mode);
@@ -113,13 +115,13 @@ source_descriptor* create_source_descriptor(){
 	return current_source;
 }
 
-//Constructor for xmlelement descriptor
-xmlelement_descriptor* create_xmlelement_descriptor(){
-	current_xmlelement = (xmlelement_descriptor*) malloc(sizeof(xmlelement_descriptor));
-	current_xmlelement->sources = list_create();
-	current_xmlelement->name = NULL;
-	list_insert(current_config_file->xmlelement_descriptors, current_xmlelement);
-	return current_xmlelement;
+//Constructor for xmlrecord descriptor
+xmlrecord_descriptor* create_xmlrecord_descriptor(){
+	current_xmlrecord = (xmlrecord_descriptor*) malloc(sizeof(xmlrecord_descriptor));
+	current_xmlrecord->sources = list_create();
+	current_xmlrecord->name = NULL;
+	list_insert(current_config_file->xmlrecord_descriptors, current_xmlrecord);
+	return current_xmlrecord;
 }
 
 //Constructor for rule
@@ -141,9 +143,10 @@ void init_config_regex(){
 	regcomp(&regex_rule,"^[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interval,"^[ \t]*INTERVAL[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_odid,"^[ \t]*SOURCEID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_xmlfile,"^[ \t]*XMLFILE[ \t]+([^ \t\n]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_xmlelement_selector,"^[ \t]*XMLELEMENT[ \t]+([A-Za-z0-9/_-]+)[ \t\n]*$",REG_EXTENDED);
+	regcomp(&regex_odid,"^[ \t]*ODID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
+	regcomp(&regex_xmlfile,"^[ \t]*XMLFILE[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
+	regcomp(&regex_xmlpostprocessing,"^[ \t]*XMLPOSTPROCESSING[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
+	regcomp(&regex_xmlrecord_selector,"^[ \t]*XMLRECORD[ \t]+([A-Za-z0-9/_-]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xml_rule,"^[ \t]*([A-Za-z0-9/_-]+)[ \t\n]*$",REG_EXTENDED);
 	config_regex_inited = 1;
 }
@@ -314,7 +317,7 @@ int process_record_line(char* line, int in_line){
  */
 int process_collector_line(char* line, int in_line){
 	if(regexec(&regex_collector,line,3,config_buffer,0)){
-		THROWEXCEPTION("Collector line %d in config file is malformed:\n%s",in_line,line);
+		THROWEXCEPTION("COLLECTOR line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	char* ip = extract_string_from_regmatch(&config_buffer[1],line);
@@ -330,7 +333,7 @@ int process_collector_line(char* line, int in_line){
  */
 int process_interval_line(char* line, int in_line){
 	if(regexec(&regex_interval,line,2,config_buffer,0)){
-		THROWEXCEPTION("Interval line %d in config file is malformed:\n%s",in_line,line);
+		THROWEXCEPTION("INTERVAL line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	current_config_file->interval = extract_int_from_regmatch(&config_buffer[1],line);
@@ -344,7 +347,7 @@ int process_interval_line(char* line, int in_line){
  */
 int process_odid_line(char* line, int in_line){
 	if(regexec(&regex_odid,line,2,config_buffer,0)){
-		THROWEXCEPTION("Source id line %d in config file is malformed:\n%s",in_line,line);
+		THROWEXCEPTION("ODID line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	current_config_file->observation_domain_id = extract_int_from_regmatch(&config_buffer[1],line);
@@ -358,10 +361,24 @@ int process_odid_line(char* line, int in_line){
  */
 int process_xmlfile_line(char* line, int in_line){
 	if(regexec(&regex_xmlfile,line,2,config_buffer,0)){
-		THROWEXCEPTION("XML file name line %d in config file is malformed:\n%s",in_line,line);
+		THROWEXCEPTION("XMLFILE line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	current_config_file->xmlfile = extract_string_from_regmatch(&config_buffer[1],line);
+	return 1;
+}
+
+/**
+ * Processes an XML postprocessing line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
+int process_xmlpostprocessing_line(char* line, int in_line){
+	if(regexec(&regex_xmlpostprocessing,line,2,config_buffer,0)){
+		THROWEXCEPTION("XMLPOSTPROCESSING line %d in config file is malformed:\n%s",in_line,line);
+	}
+
+	current_config_file->xmlpostprocessing = extract_string_from_regmatch(&config_buffer[1],line);
 	return 1;
 }
 
@@ -370,15 +387,15 @@ int process_xmlfile_line(char* line, int in_line){
  * <line> is the content of that line
  * <in_line> is the number of that line
  */
-int process_xmlelement_line(char* line, int in_line){
+int process_xmlrecord_line(char* line, int in_line){
 
-	if(regexec(&regex_xmlelement_selector,line,2,config_buffer,0)){
-		THROWEXCEPTION("XMLELEMENT line %d in config file is malformed (not starting with the XMLELEMENT selector):\n%s",in_line,line);
+	if(regexec(&regex_xmlrecord_selector,line,2,config_buffer,0)){
+		THROWEXCEPTION("XMLRECORD line %d in config file is malformed (not starting with the XMLRECORD selector):\n%s",in_line,line);
 	}
 
 	//Create new record descriptor
-	create_xmlelement_descriptor();
-	current_xmlelement->name = extract_string_from_regmatch(&config_buffer[1], line);
+	create_xmlrecord_descriptor();
+	current_xmlrecord->name = extract_string_from_regmatch(&config_buffer[1], line);
 
 	parse_mode = PARSE_MODE_XML_SOURCE_DESCR;
 	return 1;
@@ -441,10 +458,12 @@ int process_config_line(char* line, int in_line){
 				process_interval_line(line, in_line);
 			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
 				process_odid_line(line, in_line);
-			} else if(!regexec(&regex_xmlelement_selector,line,2,config_buffer,0)) {
-				process_xmlelement_line(line, in_line);
+			} else if(!regexec(&regex_xmlrecord_selector,line,2,config_buffer,0)) {
+				process_xmlrecord_line(line, in_line);
 			} else if(!regexec(&regex_xmlfile,line,2,config_buffer,0)) {
 				process_xmlfile_line(line, in_line);
+			} else if(!regexec(&regex_xmlpostprocessing,line,2,config_buffer,0)) {
+				process_xmlpostprocessing_line(line, in_line);
 			} else {
 				THROWEXCEPTION("Line %d is malformed (expecting record descriptor, interval descriptor, or collector descriptor):\n%s",in_line,line);
 			}
@@ -471,10 +490,12 @@ int process_config_line(char* line, int in_line){
 				process_interval_line(line, in_line);
 			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
 				process_odid_line(line, in_line);
-			} else if(!regexec(&regex_xmlelement_selector,line,2,config_buffer,0)) {
-				process_xmlelement_line(line, in_line);
+			} else if(!regexec(&regex_xmlrecord_selector,line,2,config_buffer,0)) {
+				process_xmlrecord_line(line, in_line);
 			} else if(!regexec(&regex_xmlfile,line,2,config_buffer,0)) {
 				process_xmlfile_line(line, in_line);
+			} else if(!regexec(&regex_xmlpostprocessing,line,2,config_buffer,0)) {
+				process_xmlpostprocessing_line(line, in_line);
 			} else {
 				THROWEXCEPTION("Line %d is malformed (expecting record descriptor, collector descriptor, interval descriptor, or source descriptor from previous record):\n%s",in_line,line);
 			}
@@ -632,20 +653,21 @@ void echo_config_file(config_file_descriptor* conf){
 
 	indent -= 2;
 	printf("%sXML file: %s\n", get_indent(indent), conf->xmlfile);
+	printf("%sXML postprocessing: %s\n", get_indent(indent), conf->xmlpostprocessing);
 
-	for(cur=conf->xmlelement_descriptors->first;cur!=NULL;cur=cur->next){
-		xmlelement_descriptor* cur_xmlelement = (xmlelement_descriptor*)cur->data;
-		printf("%sXML element <%s> with %i sources\n",
+	for(cur=conf->xmlrecord_descriptors->first;cur!=NULL;cur=cur->next){
+		xmlrecord_descriptor* cur_xmlrecord = (xmlrecord_descriptor*)cur->data;
+		printf("%sXML record <%s> with %i sources\n",
 				get_indent(indent),
-				cur_xmlelement->name,
-				cur_xmlelement->sources->size);
+				cur_xmlrecord->name,
+				cur_xmlrecord->sources->size);
 
 		//start echo sources
 		indent+=2;
 
 		list_node* cur2;
 
-		for(cur2=cur_xmlelement->sources->first;cur2!=NULL;cur2=cur2->next){
+		for(cur2=cur_xmlrecord->sources->first;cur2!=NULL;cur2=cur2->next){
 			source_descriptor* cur_source = (source_descriptor*)cur2->data;
 
 			printf("%sSource %s (type %d) with %d rules and pattern: %s\n",
