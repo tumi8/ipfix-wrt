@@ -365,7 +365,7 @@ int source_to_xml(char* input, source_descriptor* source, FILE* xmlfh){
 
 				msg(MSG_DEBUG, "    XML element <%s>: \"%s\"", name, &input[match_buffer[i].rm_so]);
 				
-				fprintf(xmlfh, "<%s>%s</%s>\n", name, &input[match_buffer[i].rm_so], name);
+				fprintf(xmlfh, "\t<%s>%s</%s>\n", name, &input[match_buffer[i].rm_so], name);
 
 				//Revert null termination
 				input[match_buffer[i].rm_eo] = swap;

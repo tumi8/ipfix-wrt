@@ -56,10 +56,10 @@ regex_t regex_xmlfile;
 regex_t regex_xmlpostprocessing;
 regex_t regex_xmlrecord_selector;
 regex_t regex_xml_rule;
-config_file_descriptor* current_config_file;
-record_descriptor* current_record;
-source_descriptor* current_source;
-xmlrecord_descriptor* current_xmlrecord;
+config_file_descriptor* current_config_file = NULL;
+record_descriptor* current_record = NULL;
+source_descriptor* current_source = NULL;
+xmlrecord_descriptor* current_xmlrecord = NULL;
 regmatch_t config_buffer[5];
 
 //Constructor for config file descriptor
@@ -548,18 +548,23 @@ config_file_descriptor* read_config(char* filename){
 	}
 
 	//No records found
-	if(current_config_file->record_descriptors->size==0){
-		THROWEXCEPTION("Reached end of config file, but no record found (empty config?)");
+	if(current_config_file->record_descriptors->size==0 && current_config_file->xmlrecord_descriptors->size==0){
+		THROWEXCEPTION("Reached end of config file, but no RECORD/MULTIRECORD/XMLRECORD found.");
 	}
 
 	//Missing sources at the end of file
-	if(current_record->sources->size==0){
-		THROWEXCEPTION("Reached end of config file, but the last record has no sources!");
+	if(current_record && current_record->sources->size==0){
+		THROWEXCEPTION("Reached end of config file, but the last RECORD has no sources!");
 	}
 
 	//No collectors defined
-	if(current_config_file->collectors->size==0){
-		THROWEXCEPTION("Reached end of config file, but no collector definitions found");
+	if(current_config_file->record_descriptors->size>0 && current_config_file->collectors->size==0){
+		msg(MSG_DIALOG, "Records will not be exported because no COLLECTOR definition was found in config file.");
+	}
+
+	//No collectors defined
+	if(current_config_file->xmlrecord_descriptors->size>0 && current_config_file->xmlfile==NULL){
+		msg(MSG_DIALOG, "XML file will not be written because no XMLFILE definition was found in config file.");
 	}
 
 	if (msg_getlevel() >= MSG_VDEBUG) {

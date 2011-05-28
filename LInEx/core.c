@@ -165,8 +165,10 @@ int main(int argc, char **argv)
 		now = time(NULL);
 		strftime(timestr, 20, "%X", localtime(&now));
 		msg(MSG_DIALOG, "Export status at %s (round %d)", timestr, i);
-		msg(MSG_INFO, "Exporting IPFIX messages...");
-		config_to_ipfix(send_exporter, conf);
+		if(conf->record_descriptors->size>0 && conf->collectors->size>0) {
+			msg(MSG_INFO, "Exporting IPFIX messages...");
+			config_to_ipfix(send_exporter, conf);
+		}
 		if(xmlfh != NULL) {
 			msg(MSG_INFO, "Updating XML file %s", conf->xmlfile);
 			config_to_xml(xmlfh, conf);
