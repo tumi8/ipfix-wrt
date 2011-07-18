@@ -37,7 +37,7 @@ char send_buffer[SEND_BUFFER_SIZE];
 regmatch_t match_buffer[MATCH_BUFFER_SIZE];
 int send_buffer_offset = 0;
 
-
+int source_to_xml(char* input, source_descriptor* source, FILE* xmlfh);
 
 /*
  *
