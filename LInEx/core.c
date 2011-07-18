@@ -34,7 +34,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
-
+#include "flows/flows.h"
 
 regex_t param_regex;
 regex_t long_param_regex;
@@ -146,6 +146,13 @@ int main(int argc, char **argv)
 	generate_templates_from_config(send_exporter,conf);
 	msg(MSG_DIALOG, "LInEx is up and running. Press Ctrl-C to exit.");
 
+	// Start capturing session
+	capture_session session;
+	if (start_capture_session(&session, NULL, 30)) {
+		printf("%s\n", session.errbuf);
+		THROWEXCEPTION("Failed to start capture session.\n");
+	}
+
 	//Open XML file
 	FILE* xmlfh = NULL;
 	if(conf->xmlfile != NULL) {
@@ -190,6 +197,9 @@ int main(int argc, char **argv)
 				}
 			}
 		}
+
+		capture(&session);
+
 		timeout = conf->interval;
 		while(timeout = sleep(timeout)) {}
 	}
