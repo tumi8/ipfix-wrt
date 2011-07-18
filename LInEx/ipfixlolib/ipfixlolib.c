@@ -893,7 +893,7 @@ int ipfix_init_exporter(uint32_t observation_domain_id, ipfix_exporter **exporte
         tmp->sn_increment = 0;
         tmp->observation_domain_id=observation_domain_id;
 
-	tmp->max_message_size = UINT16_MAX;
+	tmp->max_message_size = IPFIX_MTU_CONSERVATIVE_DEFAULT;
 
         tmp->collector_max_num = 0;
 #ifdef SUPPORT_DTLS
@@ -1021,7 +1021,7 @@ static void update_exporter_max_message_size(ipfix_exporter *exporter) {
     ipfix_receiving_collector *col;
     int i;
     uint16_t max_message_size;
-    max_message_size = UINT16_MAX;
+    max_message_size = exporter->max_message_size;
     for(i=0;i<exporter->collector_max_num;i++) {
 	col = &exporter->collector_arr[i];
 	if(col->state != C_UNUSED &&
@@ -1139,7 +1139,7 @@ static int add_collector_datafile(ipfix_receiving_collector *collector, const ch
 }
 
 #ifdef IPFIXLOLIB_RAWDIR_SUPPORT
-static int add_collector_rawdir(ipfix_receiving_collector *collector,char *path) {
+static int add_collector_rawdir(ipfix_receiving_collector *collector, const char *path) {
     collector->ipv4address[0] = '\0';
     collector->port_number = 0;
     collector->data_socket = -1;
@@ -1147,7 +1147,7 @@ static int add_collector_rawdir(ipfix_receiving_collector *collector,char *path)
     collector->last_reconnect_attempt_time = 0;
 
 
-    collector->packet_directory_path = strdup(coll_ip4_addr);
+    collector->packet_directory_path = strdup(path);
     collector->packets_written = 0;
     collector->state = C_CONNECTED;
     return 0;
@@ -1764,7 +1764,7 @@ static int ipfix_init_collector_array(ipfix_receiving_collector **col, int col_c
 		c->data_socket = -1;
 		c->last_reconnect_attempt_time = 0;
 #ifdef IPFIXLOLIB_RAWDIR_SUPPORT
-		c->packet_directory_path = NULL:
+		c->packet_directory_path = NULL;
 		c->packets_written = 0;
 #endif
 #ifdef SUPPORT_DTLS
@@ -2728,7 +2728,7 @@ uint16_t ipfix_get_remaining_space(ipfix_exporter *exporter) {
 	space -= exporter->data_sendbuffer->set_manager.data_length;
     }
     if (space < 0) space = 0;
-    if (space > UINT16_MAX) space = UINT16_MAX;
+    if (space > IPFIX_MTU_MAX) space = IPFIX_MTU_MAX;
     return space;
 }
 

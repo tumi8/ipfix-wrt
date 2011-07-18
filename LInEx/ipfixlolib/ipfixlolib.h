@@ -202,6 +202,8 @@ extern "C" {
  * the IPv4 header. This is because of the 16-bit total length field.
  */
 #define IPFIX_MTU_MAX UINT16_MAX
+
+
 /* Use a very conservative default MTU so that it even works with IPSec over PPPoE */
 #define IPFIX_MTU_CONSERVATIVE_DEFAULT 1400
 
