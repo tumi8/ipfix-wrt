@@ -688,8 +688,17 @@ static int init_send_udp_socket(struct sockaddr_in serv_addr){
                 return -1;
         }
 
+        // Workaround strict aliasing warnings
+        union sa {
+            struct sockaddr sa;
+            struct sockaddr_in sa_in;
+        };
+
+        union sa addr;
+        addr.sa_in = serv_addr;
+
         // connect to server
-        if(connect(s, (struct sockaddr*)&serv_addr, sizeof(serv_addr) ) < 0) {
+        if(connect(s, (const struct sockaddr *) &addr.sa, sizeof(serv_addr) ) < 0) {
                 msg(MSG_FATAL, "connect failed, %s", strerror(errno));
                 /* clean up */
                 close(s);
