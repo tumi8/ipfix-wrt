@@ -51,6 +51,7 @@ regex_t regex_source_suffix;
 regex_t regex_rule;
 regex_t regex_collector;
 regex_t regex_interval;
+regex_t regex_interface;
 regex_t regex_odid;
 regex_t regex_xmlfile;
 regex_t regex_xmlpostprocessing;
@@ -70,6 +71,7 @@ config_file_descriptor* create_config_file_descriptor(){
 	current_config_file->collectors = list_create();
 	current_config_file->verbose = STANDARD_VERBOSE_LEVEL;
 	current_config_file->interval = STANDARD_SEND_INTERVAL;
+        current_config_file->interfaces = list_create();
 	current_config_file->observation_domain_id = OBSERVATION_DOMAIN_STANDARD_ID;
 	current_config_file->xmlfile = NULL;
 	current_config_file->xmlpostprocessing = NULL;
@@ -143,7 +145,8 @@ void init_config_regex(){
 	regcomp(&regex_rule,"^[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interval,"^[ \t]*INTERVAL[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_odid,"^[ \t]*ODID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
+        regcomp(&regex_interface,"^[ \t]*INTERFACE[ \t]+(\\w+)[ \t\n]*$",REG_EXTENDED);
+        regcomp(&regex_odid,"^[ \t]*ODID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlfile,"^[ \t]*XMLFILE[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlpostprocessing,"^[ \t]*XMLPOSTPROCESSING[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlrecord_selector,"^[ \t]*XMLRECORD[ \t]+([A-Za-z0-9/_-]+)[ \t\n]*$",REG_EXTENDED);
@@ -341,6 +344,22 @@ int process_interval_line(char* line, int in_line){
 }
 
 /**
+ * Processes the interface line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
+int process_interface_line(char* line, int in_line){
+        if(regexec(&regex_interface,line,2,config_buffer,0)){
+                THROWEXCEPTION("INTERFACE line %d in config file is malformed:\n%s",in_line,line);
+        }
+
+        list_insert(current_config_file->interfaces, extract_string_from_regmatch(&config_buffer[1], line));
+
+        return 1;
+}
+
+
+/**
  * Processes an observation domain ID line (source ID line) in the config file
  * <line> is the content of that line
  * <in_line> is the number of that line
@@ -456,6 +475,8 @@ int process_config_line(char* line, int in_line){
 				process_record_line(line, in_line);
 			} else if(!regexec(&regex_interval,line,2,config_buffer,0)) {
 				process_interval_line(line, in_line);
+                        } else if (!regexec(&regex_interface,line,2,config_buffer,0)) {
+                                process_interface_line(line, in_line);
 			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
 				process_odid_line(line, in_line);
 			} else if(!regexec(&regex_xmlrecord_selector,line,2,config_buffer,0)) {

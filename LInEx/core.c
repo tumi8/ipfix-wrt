@@ -146,12 +146,27 @@ int main(int argc, char **argv)
 	generate_templates_from_config(send_exporter,conf);
 	msg(MSG_DIALOG, "LInEx is up and running. Press Ctrl-C to exit.");
 
-	// Start capturing session
-	capture_session session;
-	if (start_capture_session(&session, NULL, 30)) {
-		printf("%s\n", session.errbuf);
-		THROWEXCEPTION("Failed to start capture session.\n");
-	}
+        // Start capturing sessions
+        list *capture_sessions = list_create();
+        struct lnode *node = conf->interfaces->first;
+
+        while (node != NULL) {
+                capture_session *session = (capture_session *) malloc(sizeof(capture_session));
+                char *interface = (char *) node->data;
+                if (session == NULL) {
+                        msg(MSG_ERROR, "Failed to allocate memory for capture session (interface %s).", interface);
+                        continue;
+                }
+
+                if (start_capture_session(session, interface, 30)) {
+                        msg(MSG_ERROR, "Failed to start capture session for interface %s: %s", interface, session->errbuf);
+                        free(session);
+                } else {
+                        list_insert(capture_sessions, session);
+                }
+
+                node = node->next;
+        }
 
 	//Open XML file
 	FILE* xmlfh = NULL;
@@ -198,10 +213,14 @@ int main(int argc, char **argv)
 			}
 		}
 
-		capture(&session);
+                struct lnode *node = capture_sessions->first;
+                while (node != NULL) {
+                        capture((capture_session *) node->data);
+                        node = node->next;
+                }
 
 		timeout = conf->interval;
-		while(timeout = sleep(timeout)) {}
+                // while(timeout = sleep(timeout)) {}
 	}
 
 	//Dead code :)

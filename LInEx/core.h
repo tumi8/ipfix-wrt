@@ -90,6 +90,7 @@ typedef struct{
 	list* record_descriptors;
 	list* xmlrecord_descriptors;
 	list* collectors;
+        list* interfaces;
 	unsigned interval;
 	uint32_t observation_domain_id;
 	int verbose;
