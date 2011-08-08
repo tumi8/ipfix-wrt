@@ -129,8 +129,8 @@ static struct topology_set_entry *find_or_create_topology_set_entry(struct topol
             return NULL;
 
         ts_entry->dest_addr = *addr;
-
-        ts->last->next = ts_entry;
+        if (ts->last != NULL)
+            ts->last->next = ts_entry;
         ts->last = ts_entry;
     }
 
