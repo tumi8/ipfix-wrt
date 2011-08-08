@@ -11,8 +11,8 @@ khash_t(2) *tc_set = NULL;
 
 static int olsr_parse_packet_header(const u_char **data, const u_char *const end_data, struct olsr_packet *packet_hdr);
 static int olsr_parse_message(const u_char **data, const u_char *const end_data, const flow_key *const key, struct olsr_common *message);
-static int olsr_handle_hello_message(const u_char **data, const u_char *const end_data, const flow_key * const key, struct olsr_hello_message *message);
-static int olsr_handle_tc_message(const u_char **data, const u_char *const end_data, const flow_key * const key, struct olsr_tc_message *message);
+static int olsr_handle_hello_message(const u_char **data, const flow_key * const key, struct olsr_hello_message *message);
+static int olsr_handle_tc_message(const u_char **data, const flow_key * const key, struct olsr_tc_message *message);
 
 /**
   * Attemps to parse an OLSR packet.
@@ -48,14 +48,14 @@ int olsr_parse_packet(capture_session *session, const struct pcap_pkthdr *const 
         case HELLO_MESSAGE:
         case HELLO_LQ_MESSAGE: {
             struct olsr_hello_message hello_message = { message };
-            if (olsr_handle_hello_message(&data, end_data, key, &hello_message))
+            if (olsr_handle_hello_message(&data, key, &hello_message))
                 return -1;
             break;
         }
         case TC_MESSAGE:
         case TC_LQ_MESSAGE: {
             struct olsr_tc_message tc_message = { message };
-            if (olsr_handle_tc_message(&data, end_data, key, &tc_message))
+            if (olsr_handle_tc_message(&data, key, &tc_message))
                 return -1;
             break;
         }
@@ -142,9 +142,9 @@ static struct topology_set_entry *find_or_create_topology_set_entry(struct topol
   *
   * Returns 0 on success, -1 otherwise.
   */
-static int olsr_handle_tc_message(const u_char **data, const u_char *const end_data, const flow_key *const key, struct olsr_tc_message *message) {
-    if ((message->comm.type == TC_LQ_MESSAGE && *data + OLSR_TC_LQ_MESSAGE_HEADER_LEN >= end_data) ||
-            (*data + OLSR_TC_MESSAGE_HEADER_LEN >= end_data)) {
+static int olsr_handle_tc_message(const u_char **data, const flow_key *const key, struct olsr_tc_message *message) {
+    if ((message->comm.type == TC_LQ_MESSAGE && *data + OLSR_TC_LQ_MESSAGE_HEADER_LEN > message->comm.end) ||
+            (*data + OLSR_TC_MESSAGE_HEADER_LEN > message->comm.end)) {
         msg(MSG_ERROR, "Packet too short to be a valid OLSR TC packet.");
 
         return -1;
@@ -207,8 +207,8 @@ static int olsr_handle_tc_message(const u_char **data, const u_char *const end_d
   * Attempts to parse an OLSR HELLO message.
   *
   */
-static int olsr_handle_hello_message(const u_char **data, const u_char *const end_data, const flow_key *const key, struct olsr_hello_message *message) {
-    if (*data + OLSR_HELLO_MESSAGE_HEADER_LEN >= end_data) {
+static int olsr_handle_hello_message(const u_char **data, const flow_key *const key, struct olsr_hello_message *message) {
+    if (*data + OLSR_HELLO_MESSAGE_HEADER_LEN > message->comm.end) {
         msg(MSG_ERROR, "Packet too short to be a valid OLSR HELLO packet.");
 
         return -1;
@@ -232,8 +232,8 @@ static int olsr_handle_hello_message(const u_char **data, const u_char *const en
 
         hello_info_end += info.size;
 
-        if (hello_info_end > end_data) {
-            msg(MSG_ERROR, "Neighbor list points beyond end of buffer by %d bytes.", (hello_info_end - end_data));
+        if (hello_info_end > message->comm.end) {
+            msg(MSG_ERROR, "Neighbor list points beyond end of buffer by %t bytes.", (hello_info_end - message->comm.end));
 
             return -1;
         }
@@ -296,6 +296,12 @@ static int olsr_parse_message(const u_char **data, const u_char *const end_data,
     pkt_get_u8(data, &message->ttl);
     pkt_get_u8(data, &message->hops);
     pkt_get_u16(data, &message->seqno);
+
+    if (start + message->size > end_data) {
+        msg(MSG_ERROR, "Message end points beyond input buffer by %t bytes.", (start + message->size) - end_data);
+
+        return -1;
+    }
 
     message->end = start + message->size;
 
