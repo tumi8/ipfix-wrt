@@ -34,7 +34,7 @@ int olsr_parse_packet(capture_session *session, const struct pcap_pkthdr *const 
         return -1;
     }
 
-    msg(MSG_ERROR, "Packet Info: Sequence Number %d, Size: %d", packet.seqno, packet.size);
+    DPRINTF("Packet Info: Sequence Number %d, Size: %d", packet.seqno, packet.size);
 
     struct olsr_common message;
     while (data < end_data) {
@@ -42,7 +42,7 @@ int olsr_parse_packet(capture_session *session, const struct pcap_pkthdr *const 
             return -1;
         }
 
-        msg(MSG_ERROR, "Message Info: Type: %d Hops: %d Size: %d", message.type, message.hops, message.size);
+        DPRINTF("Message Info: Type: %d Hops: %d Size: %d", message.type, message.hops, message.size);
 
         switch (message.type) {
         case HELLO_MESSAGE:
