@@ -20,8 +20,9 @@ ADD_EXECUTABLE(LInEx
 	transform_rules.c
 	flows/flows.c
 	flows/olsr.c
-        flows/mantissa.c
-        flows/topology_set.c
+	flows/mantissa.c
+	flows/topology_set.c
+	flows/export.c
 	flows/olsr_protocol.h
 )
 

@@ -35,12 +35,15 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include "flows/flows.h"
+#include "flows/topology_set.h"
+#include "flows/export.h"
 
 regex_t param_regex;
 regex_t long_param_regex;
 regmatch_t param_matches[3];
 char* config_file = NULL;
 pid_t childpid = -1;
+extern khash_t(2) *tc_set;
 
 /**
  * Takes all collectors from config file <conf>
@@ -168,6 +171,10 @@ int main(int argc, char **argv)
                 node = node->next;
         }
 
+        // Declare IPFIX templates to export monitoring information
+        if (declare_templates(send_exporter))
+            msg(MSG_ERROR, "Failed to export templates.");
+
 	//Open XML file
 	FILE* xmlfh = NULL;
 	if(conf->xmlfile != NULL) {
@@ -218,6 +225,8 @@ int main(int argc, char **argv)
                         capture((capture_session *) node->data);
                         node = node->next;
                 }
+
+                export_full(send_exporter, tc_set);
 
 		timeout = conf->interval;
                 // while(timeout = sleep(timeout)) {}

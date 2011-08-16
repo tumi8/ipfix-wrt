@@ -44,7 +44,24 @@ union olsr_ip_addr {
     struct in6_addr v6;
 };
 
-typedef uint32_t olsr_reltime;
+typedef struct ip_addr_t {
+    network_protocol protocol;
+    union olsr_ip_addr addr;
+} ip_addr;
+
+/**
+  * Returns the length (in bytes) of the given network address.
+  */
+static inline uint16_t ip_addr_len(enum network_protocol_t type) {
+    switch (type) {
+    case IPv4:
+        return sizeof(struct in_addr);
+    case IPv6:
+        return sizeof(struct in6_addr);
+    default:
+        return 0;
+    }
+}
 
 /**
   * Definitions from OLSRd sources.
@@ -186,15 +203,48 @@ pkt_ignore_s32(const uint8_t ** p)
     *p += sizeof(int32_t);
 }
 
-static inline uint16_t ip_addr_len(enum network_protocol_t type) {
-    switch (type) {
-    case IPv4:
-        return sizeof(struct in_addr);
-    case IPv6:
-        return sizeof(struct in6_addr);
-    default:
-        return 0;
-    }
+static inline void
+pkt_put_u8(uint8_t ** p, uint8_t var)
+{
+    **((uint8_t **)p) = var;
+    *p += sizeof(uint8_t);
+}
+static inline void
+pkt_put_u16(uint8_t ** p, uint16_t var)
+{
+    **((uint16_t **)p) = htons(var);
+    *p += sizeof(uint16_t);
+}
+static inline void
+pkt_put_u32(uint8_t ** p, uint32_t var)
+{
+    **((uint32_t **)p) = htonl(var);
+    *p += sizeof(uint32_t);
+}
+static inline void
+pkt_put_s8(uint8_t ** p, int8_t var)
+{
+    **((int8_t **)p) = var;
+    *p += sizeof(int8_t);
+}
+static inline void
+pkt_put_s16(uint8_t ** p, int16_t var)
+{
+    **((int16_t **)p) = htons(var);
+    *p += sizeof(int16_t);
+}
+static inline void
+pkt_put_s32(uint8_t ** p, int32_t var)
+{
+    **((int32_t **)p) = htonl(var);
+    *p += sizeof(int32_t);
+}
+
+static inline void
+pkt_put_ipaddress(uint8_t ** p, const union olsr_ip_addr *var, network_protocol proto)
+{
+    memcpy(*p, var, ip_addr_len(proto));
+    *p += ip_addr_len(proto);
 }
 
 #endif

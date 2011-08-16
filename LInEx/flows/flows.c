@@ -25,7 +25,7 @@ int start_capture_session(capture_session *session, char *device_name, uint16_t 
         return -1;
     }
 
-    session->handle = pcap_open_live(device_name, CAPTURE_LENGTH, 0, 1000, session->errbuf);
+    session->handle = pcap_open_live(device_name, CAPTURE_LENGTH, 0, 500, session->errbuf);
 
     if (session->handle == NULL) {
         return -1;
@@ -262,7 +262,7 @@ int capture(capture_session *session) {
     if (session->handle == NULL)
         return -1;
 
-    while ((ret = pcap_next_ex(session->handle, &pkthdr, &data)) >= 0) {
+    while ((ret = pcap_next_ex(session->handle, &pkthdr, &data)) > 0) {
         switch (session->datalink_type) {
         case DLT_EN10MB:
             if (parse_ethernet(session, pkthdr, (u_char * const) data, (u_char * const) data + pkthdr->caplen) == 0) {

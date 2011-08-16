@@ -5,10 +5,7 @@
 #include "flows.h"
 #include "olsr_protocol.h"
 
-typedef struct ip_addr_t {
-    network_protocol protocol;
-    union olsr_ip_addr addr;
-} ip_addr;
+
 
 struct topology_set_entry {
     union olsr_ip_addr dest_addr;
