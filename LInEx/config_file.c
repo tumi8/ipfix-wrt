@@ -568,16 +568,6 @@ config_file_descriptor* read_config(char* filename){
 		THROWEXCEPTION("Reached end of config file, but still %d rules missing for the last source!", num_rule_lines);
 	}
 
-	//No records found
-	if(current_config_file->record_descriptors->size==0 && current_config_file->xmlrecord_descriptors->size==0){
-		THROWEXCEPTION("Reached end of config file, but no RECORD/MULTIRECORD/XMLRECORD found.");
-	}
-
-	//Missing sources at the end of file
-	if(current_record && current_record->sources->size==0){
-		THROWEXCEPTION("Reached end of config file, but the last RECORD has no sources!");
-	}
-
 	//No collectors defined
 	if(current_config_file->record_descriptors->size>0 && current_config_file->collectors->size==0){
 		msg(MSG_DIALOG, "Records will not be exported because no COLLECTOR definition was found in config file.");
