@@ -150,26 +150,23 @@ int main(int argc, char **argv)
 	msg(MSG_DIALOG, "LInEx is up and running. Press Ctrl-C to exit.");
 
         // Start capturing sessions
-        list *capture_sessions = list_create();
-        struct lnode *node = conf->interfaces->first;
+        capture_session session;
 
-        while (node != NULL) {
-                capture_session *session = (capture_session *) malloc(sizeof(capture_session));
-                char *interface = (char *) node->data;
-                if (session == NULL) {
-                        msg(MSG_ERROR, "Failed to allocate memory for capture session (interface %s).", interface);
-                        continue;
-                }
+        if (start_capture_session(&session, 30))
+            msg(MSG_ERROR, "Failed to start capture session.");
+        else {
+            struct lnode *node = conf->interfaces->first;
 
-                if (start_capture_session(session, interface, 30)) {
-                        msg(MSG_ERROR, "Failed to start capture session for interface %s: %s", interface, session->errbuf);
-                        free(session);
-                } else {
-                        list_insert(capture_sessions, session);
-                }
+            while (node != NULL) {
+                    char *interface = (char *) node->data;
+                    if (add_interface(&session, interface, 1))
+                        msg(MSG_ERROR, "Failed to add interface %s to capture session.", interface);
 
-                node = node->next;
+                    node = node->next;
+            }
         }
+
+
 
         // Declare IPFIX templates to export monitoring information
         if (declare_templates(send_exporter))
@@ -220,11 +217,7 @@ int main(int argc, char **argv)
 			}
 		}
 
-                struct lnode *node = capture_sessions->first;
-                while (node != NULL) {
-                        capture((capture_session *) node->data);
-                        node = node->next;
-                }
+                capture(&session);
 
                 export_full(send_exporter, tc_set);
 

@@ -9,43 +9,256 @@
 #include <netinet/ip6.h>
 #include <netinet/udp.h>
 #include <netinet/tcp.h>
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <linux/filter.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <stdbool.h>
 
-static int parse_ipv4(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data);
-static int parse_ipv6(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data);
-static int parse_udp(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data, flow_key *flow);
-static int parse_tcp(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data, flow_key *flow);
+static int parse_ipv4(capture_session *session, struct pktinfo *pkt);
+static int parse_ipv6(capture_session *session, struct pktinfo *pkt);
+static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
+static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
 
-int start_capture_session(capture_session *session, char *device_name, uint16_t export_timeout) {
-    // Lookup the default device via PCAP if it was not specified by the user.
-    if (device_name == NULL) {
-        device_name = pcap_lookupdev(session->errbuf);
-    }
+/**
+  * Compiled BPF filter: tcpdump -dd "not ether src de:ad:be:ef:aa:aa and (ip or ip6)"
+  */
+static struct sock_filter egress_filter[] = {
+    { 0x20, 0, 0, 0x00000008 },
+    { 0x15, 0, 2, 0xbeefaaaa },
+    { 0x28, 0, 0, 0x00000006 },
+    { 0x15, 4, 0, 0x0000dead },
+    { 0x28, 0, 0, 0x0000000c },
+    { 0x15, 1, 0, 0x00000800 },
+    { 0x15, 0, 1, 0x000086dd },
+    { 0x6, 0, 0, 0x0000ffff },
+    { 0x6, 0, 0, 0x00000000 }
+};
 
-    if (device_name == NULL) {
-        return -1;
-    }
+/**
+  * Compiled BPF filter: tcpdump -dd "ip or ip6"
+  */
+static struct sock_filter ip_filter[] = {
+    { 0x28, 0, 0, 0x0000000c },
+    { 0x15, 1, 0, 0x00000800 },
+    { 0x15, 0, 1, 0x000086dd },
+    { 0x6, 0, 0, 0x0000ffff },
+    { 0x6, 0, 0, 0x00000000 },
+};
 
-    session->handle = pcap_open_live(device_name, CAPTURE_LENGTH, 0, 500, session->errbuf);
 
-    if (session->handle == NULL) {
-        return -1;
-    }
+int start_capture_session(capture_session *session, uint16_t export_timeout) {
+    memset(session, 0, sizeof(session));
 
-    session->datalink_type = pcap_datalink(session->handle);
     session->export_timeout = export_timeout;
     session->flow_database = kh_init(1);
 
     return 0;
 }
 
+static int setup_interface(char *device_name, bool enable_promisc, int *if_index, int *if_mtu, struct sockaddr *hwaddr) {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (fd == -1) {
+        msg(MSG_ERROR, "Failed to retrieve interface info for interface %s (%s).", device_name, strerror(errno));
+        return -1;
+    }
+
+    struct ifreq req;
+
+    strncpy(req.ifr_name, device_name, sizeof(req.ifr_name));
+    req.ifr_name[sizeof(req.ifr_name) - 1] = 0;
+
+    if (ioctl(fd, SIOCGIFINDEX, &req)) {
+        msg(MSG_ERROR, "Failed to retrieve interface index for interface %s (%s).", device_name, strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    *if_index = req.ifr_ifindex;
+
+    if (ioctl(fd, SIOCGIFMTU, &req)) {
+        msg(MSG_ERROR, "Failed to retrieve interface MTU for interface %s (%s).", device_name, strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    *if_mtu = req.ifr_mtu;
+
+    if (ioctl(fd, SIOCGIFHWADDR, &req)) {
+        msg(MSG_ERROR, "Failed to retrieve hardware adress for interface %s (%s).", device_name, strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    *hwaddr = req.ifr_hwaddr;
+
+    if (!enable_promisc) {
+        close(fd);
+        return 0;
+    }
+
+    if (ioctl(fd, SIOCGIFFLAGS, &req)) {
+        msg(MSG_ERROR, "Failed to retrieve interface flags for interface %s (%s).", device_name, strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    req.ifr_flags |= IFF_PROMISC;
+
+    if (ioctl(fd, SIOCSIFFLAGS, &req)) {
+        msg(MSG_ERROR, "Failed to enable promisicious mode for interface %s (%s).", device_name, strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+    return 0;
+}
+
+static struct sock_fprog build_filter(const struct sockaddr *hwaddr) {
+    struct sock_fprog prog = { 0, NULL };
+
+
+    if (hwaddr->sa_family == ARPHRD_ETHER) {
+        struct sock_filter *filter = egress_filter;
+
+        const char *macaddr = hwaddr->sa_data;
+
+        // Last 32 bit of MAC address
+        filter[1].k = ntohl(*((uint32_t *) macaddr + 2));
+        // First 16 bit of MAC address
+        filter[3].k = ntohs(*((uint16_t *) macaddr));
+
+        prog.len = sizeof(egress_filter) / sizeof(struct sock_filter);
+        prog.filter = filter;
+
+    } else {
+        prog.filter = ip_filter;
+        prog.len = sizeof(ip_filter) / sizeof(struct sock_filter);
+    }
+
+    return prog;
+}
+
+/**
+  * Adds the given interface to the capture list.
+  */
+int add_interface(capture_session *session, char *device_name, bool enable_promisc) {
+    int index, mtu;
+    struct sockaddr hwaddr;
+
+    if (setup_interface(device_name, enable_promisc, &index, &mtu, &hwaddr))
+        return -1;
+
+    // Use SOCK_RAW rather than SOCK_DGRAM - otherwise the BPF filters do not work
+    int fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+
+    if (fd == -1) {
+        msg(MSG_ERROR, "Failed to open raw socket for interface %s.", device_name);
+
+        return -1;
+    }
+
+    union {
+        struct sockaddr_ll ll;
+        struct sockaddr addr;
+    } addr;
+
+    memset(&addr, 0, sizeof(addr));
+
+    addr.ll.sll_family = PF_PACKET;
+    addr.ll.sll_ifindex = index;
+    addr.ll.sll_protocol = htons(ETH_P_ALL);
+
+    if (bind(fd, &addr.addr, sizeof(struct sockaddr_ll))) {
+        msg(MSG_ERROR, "Failed to bind raw socket to interface %s (%s).", device_name, strerror(errno));
+
+        close(fd);
+        return -1;
+    }
+
+    struct sock_fprog filter = build_filter(&hwaddr);
+
+    if (filter.filter != NULL) {
+        if (setsockopt(fd, SOL_SOCKET,  SO_ATTACH_FILTER, &filter, sizeof(filter)) == -1) {
+            msg(MSG_ERROR, "Failed to attach filter to file descriptor (%s)", strerror(errno));
+            close(fd);
+            return -1;
+        }
+    }
+
+    // Create or reallocate packet buffer
+    if (session->packet_buffer == NULL || session->packet_buffer_size < mtu) {
+        if (session->packet_buffer != NULL)
+            free(session->packet_buffer);
+
+        session->packet_buffer = (u_char *) malloc(mtu);
+
+        if (session->packet_buffer == NULL) {
+            msg(MSG_ERROR, "Failed to allocate packet buffer.");
+
+            close(fd);
+            return -1;
+        }
+
+        session->packet_buffer_size = mtu;
+    }
+
+    // Update pollfd list
+    if (session->interface_count == 0) {
+        session->pollfd = (struct pollfd *) malloc(sizeof(struct pollfd));
+    } else {
+        struct pollfd *resized = (struct pollfd *) realloc(session->pollfd, session->interface_count + 1);
+
+        if (resized == NULL) {
+            msg(MSG_ERROR, "Failed to allocate memory for new interface.");
+            close(fd);
+            return -1;
+        }
+
+        session->pollfd = resized;
+    }
+
+
+
+    session->interface_count++;
+
+    struct pollfd *entry = session->pollfd + (session->interface_count - 1);
+
+    entry->fd = fd;
+    entry->events = POLLIN;
+    entry->revents = 0;
+
+    return 0;
+}
+
+
+
 /**
   * Stops the given capture session. It is not possible to use this session from the
   * capture call afterwards.
   */
 void stop_capture_session(capture_session *session) {
-    if (session->handle != NULL) {
-        pcap_close(session->handle);
-        session->handle = NULL;
+    if (session->pollfd != NULL) {
+        int i;
+        for (i = 0; i < session->interface_count; i++)
+            close((session->pollfd + i)->fd);
+
+        free(session->pollfd);
+
+        session->pollfd = NULL;
+        session->interface_count = 0;
+    }
+
+    if (session->packet_buffer != NULL) {
+        free(session->packet_buffer);
+
+        session->packet_buffer = NULL;
+        session->packet_buffer_size = 0;
     }
 
     khash_t(1) *flow_database = session->flow_database;
@@ -64,23 +277,28 @@ void stop_capture_session(capture_session *session) {
     session->flow_database = NULL;
 }
 
-static int parse_ethernet(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data) {
-    if (data + sizeof(struct ether_header) > end_data) {
+
+static int parse_ethernet(capture_session *session, struct pktinfo *pkt) {
+    if (pkt->data + sizeof(struct ether_header) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid ethernet packet.");
         return -1;
     }
 
-    const struct ether_header * const hdr = (const struct ether_header * const) data;
+    const struct ether_header * const hdr = (const struct ether_header * const) pkt->data;
+
+    pkt->data += sizeof(struct ether_header);
 
     switch (ntohs(hdr->ether_type)) {
     case ETHERTYPE_IP:
-        parse_ipv4(session, pkthdr, data + sizeof(struct ether_header), end_data);
+        parse_ipv4(session, pkt);
     case ETHERTYPE_IPV6:
-        parse_ipv6(session, pkthdr, data + sizeof(struct ether_header), end_data);
+        parse_ipv6(session, pkt);
     default:
         return 0;
     }
 }
+
+/*
 
 static int parse_ip(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data) {
     if (data + 1 > end_data) {
@@ -100,19 +318,20 @@ static int parse_ip(capture_session *session, const struct pcap_pkthdr *const pk
         return -1;
     }
 }
+*/
 
-static int parse_ipv4(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data) {
-    if (data + sizeof(struct iphdr) > end_data) {
-        msg(MSG_ERROR, "Packet too short to be a valid IPv4 packet.");
+static int parse_ipv4(capture_session *session, struct pktinfo *pkt) {
+    if (pkt->data + sizeof(struct iphdr) > pkt->end_data) {
+        msg(MSG_ERROR, "Packet too short to be a valid IPv4 packet (by %t bytes).", (pkt->data + sizeof(struct iphdr) - pkt->end_data));
         return -1;
     }
 
-    const struct iphdr * const hdr = (const struct iphdr * const) data;
+    const struct iphdr * const hdr = (const struct iphdr * const) pkt->data;
 
     // Determine start address of payload based on the IHL header.
-    const u_char * payload_start = data + hdr->ihl * 4;
+    pkt->data += hdr->ihl * 4;
 
-    if (payload_start > end_data) {
+    if (pkt->data > pkt->end_data) {
         msg(MSG_ERROR, "Packet payload points beyond capture end.");
         return -1;
     }
@@ -126,18 +345,18 @@ static int parse_ipv4(capture_session *session, const struct pcap_pkthdr *const 
 
     switch (hdr->protocol) {
     case SOL_UDP:
-        return parse_udp(session, pkthdr, payload_start, end_data, (flow_key *) key);
+        return parse_udp(session, pkt, (flow_key *) key);
         break;
     case SOL_TCP:
-        return parse_tcp(session, pkthdr, payload_start, end_data, (flow_key *) key);
+        return parse_tcp(session, pkt, (flow_key *) key);
     default:
         return 0;
     }
 }
 
-static int parse_ipv6(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data) {
-    if (data + sizeof(struct ip6_hdr) > end_data) {
-        msg(MSG_ERROR, "Packet too short to be a valid IPv4 packet.");
+static int parse_ipv6(capture_session *session, struct pktinfo *pkt) {
+    if (pkt->data + sizeof(struct ip6_hdr) > pkt->end_data) {
+        msg(MSG_ERROR, "Packet too short to be a valid IPv6 packet by %td bytes.", (pkt->data + sizeof(struct iphdr) - pkt->end_data));
         return -1;
     }
 
@@ -146,20 +365,22 @@ static int parse_ipv6(capture_session *session, const struct pcap_pkthdr *const 
     return 0;
 }
 
-static int parse_udp(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data, flow_key *flow) {
-    if (data + sizeof(struct udphdr) > end_data) {
+static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *flow) {
+    if (pkt->data + sizeof(struct udphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
         return -1;
     }
 
-    const struct udphdr * const hdr = (const struct udphdr * const) data;
+    const struct udphdr * const hdr = (const struct udphdr * const) pkt->data;
 
     flow->t_protocol = TRANSPORT_UDP;
     flow->src_port = hdr->source;
     flow->dst_port = hdr->dest;
 
+    pkt->data += sizeof(struct udphdr);
+
     if (flow->dst_port == htons(OLSR_PORT)) {
-        olsr_parse_packet(session, pkthdr, data + sizeof(struct udphdr), end_data, flow);
+        olsr_parse_packet(session, pkt, flow);
     }
 
     flow_info *info = NULL;
@@ -191,18 +412,18 @@ static int parse_udp(capture_session *session, const struct pcap_pkthdr *const p
     }
 
     info->last_packet_timestamp = time(NULL);
-    info->total_bytes += pkthdr->len;
+    info->total_bytes += pkt->end_data - pkt->start_data;
 
     return 0;
 }
 
-static int parse_tcp(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data, flow_key *flow) {
-    if (data + sizeof(struct tcphdr) > end_data) {
+static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *flow) {
+    if (pkt->data + sizeof(struct tcphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
         return -1;
     }
 
-    const struct tcphdr * const hdr = (const struct tcphdr * const) data;
+    const struct tcphdr * const hdr = (const struct tcphdr * const) pkt->data;
 
     flow->t_protocol = TRANSPORT_TCP;
     flow->src_port = hdr->source;
@@ -243,7 +464,7 @@ static int parse_tcp(capture_session *session, const struct pcap_pkthdr *const p
     }
 
     info->last_packet_timestamp = time(NULL);
-    info->total_bytes += pkthdr->len;
+    info->total_bytes += pkt->end_data - pkt->data;
 
     return 0;
 }
@@ -254,28 +475,38 @@ static int parse_tcp(capture_session *session, const struct pcap_pkthdr *const p
   * Returns the number of packets captured or -1 on error.
   */
 int capture(capture_session *session) {
-    struct pcap_pkthdr *pkthdr = NULL;
-    const u_char *data = NULL;
     ssize_t packets_captured = 0;
+    union {
+        struct sockaddr_ll ll_addr;
+        struct sockaddr addr;
+    } addr;
+    socklen_t addr_len;
+
     int ret = 0;
 
-    if (session->handle == NULL)
+    if (session->pollfd == NULL)
         return -1;
 
-    while ((ret = pcap_next_ex(session->handle, &pkthdr, &data)) > 0) {
-        switch (session->datalink_type) {
-        case DLT_EN10MB:
-            if (parse_ethernet(session, pkthdr, (u_char * const) data, (u_char * const) data + pkthdr->caplen) == 0) {
-                packets_captured++;
+    while ((ret = poll(session->pollfd, session->interface_count, 500)) > 0) {
+        struct pollfd *fd;
+        struct pollfd *end_fd = session->pollfd + session->interface_count;
+
+        for (fd = session->pollfd; fd < end_fd; fd++) {
+            if (!(fd->revents & POLLIN))
+                continue;
+
+            addr_len = sizeof(struct sockaddr_ll);
+
+            size_t len = recvfrom(fd->fd, session->packet_buffer, session->packet_buffer_size, 0, (struct sockaddr *) &addr.addr, &addr_len);
+
+            if (len == -1) {
+                msg(MSG_ERROR, strerror(errno));
+
+                return -1;
             }
-            break;
-        case DLT_RAW:
-            if (parse_ip(session, pkthdr, (u_char * const) data, (u_char * const) data + pkthdr->caplen) == 0) {
-                packets_captured++;
-            }
-            break;
-        default:
-            msg(MSG_ERROR, "Unsupported data link type %d", session->datalink_type);
+
+            struct pktinfo pkt = { session->packet_buffer, session->packet_buffer + len, session->packet_buffer };
+            parse_ethernet(session, &pkt);
         }
     }
 

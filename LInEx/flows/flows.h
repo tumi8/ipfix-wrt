@@ -1,10 +1,10 @@
 #ifndef FLOWS_H_
 #define FLOWS_H_
 
-#include <pcap.h>
 #include <netinet/in.h>
 
 #include <time.h>
+#include <poll.h>
 
 #include "khash.h"
 
@@ -30,30 +30,45 @@ int flow_key_equals(struct flow_key_t *a, struct flow_key_t *b);
 
 KHASH_INIT(1, struct flow_key_t *, struct flow_info_t *, 1, hash_code, hash_eq)
 
+struct pktinfo {
+    const u_char *const start_data;
+    const u_char *const end_data;
+    const u_char *data;
+};
+
 typedef struct capture_session_t {
     /**
- * PCAP handle - only set if capturing is active.
- */
-    pcap_t *handle;
+      * The number of interfaces active in this capture session.
+      */
+    size_t interface_count;
+
     /**
-   * Error buffer for PCAP errors.
-   */
-    char errbuf[PCAP_ERRBUF_SIZE];
+      * File descriptors opened for interfaces.
+      */
+    struct pollfd *pollfd;
+
     /**
-   * The data link type of the attached interface.
-   */
-    int datalink_type;
+      * Packet buffer holding the currently captured packet.
+      */
+    u_char *packet_buffer;
+
     /**
-   * Hash table containing the currently active flows.
-   */
+      * Size of the packet buffer.
+      */
+    size_t packet_buffer_size;
+
+    /**
+      * Hash table containing the currently active flows.
+      */
     khash_t(1) *flow_database;
+
     /**
-   * The timeout in seconds after which a flow is regarded as inactive and
-   * will be exported.
-   *
-   * Note: A flow may be exported before the timeout expires (e.g. due to
-   * protocol semantics such as a TCP FIN or RST).
-   */
+      * The timeout in seconds after which a flow is regarded as inactive and
+      * will be exported.
+      *
+      * Note: A flow may be exported before the timeout expires (e.g. due to
+      * protocol semantics such as a TCP FIN or RST).
+      */
     uint16_t export_timeout;
 } capture_session;
 
@@ -134,7 +149,7 @@ typedef struct flow_info_t {
     uint32_t total_bytes;
 } flow_info;
 
-int start_capture_session(capture_session *session, char *device_name, uint16_t export_timeout);
+int start_capture_session(capture_session *session, uint16_t export_timeout);
 void stop_capture_session(capture_session *session);
 int capture(capture_session *session);
 

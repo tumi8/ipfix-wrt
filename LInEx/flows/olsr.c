@@ -19,7 +19,7 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key * const ke
   *
   * Returns 0 if the packet could be parsed sucessfully or -1 if the packet was not a valid OLSR packet.
   */
-int olsr_parse_packet(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char * data, const u_char *const end_data, const flow_key *const key) {
+int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_key *const key) {
     if (tc_set == NULL) {
         tc_set = kh_init(2);
 
@@ -30,15 +30,15 @@ int olsr_parse_packet(capture_session *session, const struct pcap_pkthdr *const 
     }
 
     struct olsr_packet packet;
-    if (olsr_parse_packet_header(&data, end_data, &packet)) {
+    if (olsr_parse_packet_header(&pkt->data, pkt->end_data, &packet)) {
         return -1;
     }
 
     DPRINTF("Packet Info: Sequence Number %d, Size: %d", packet.seqno, packet.size);
 
     struct olsr_common message;
-    while (data < end_data) {
-        if (olsr_parse_message(&data, end_data, key, &message)) {
+    while (pkt->data < pkt->end_data) {
+        if (olsr_parse_message(&pkt->data, pkt->end_data, key, &message)) {
             return -1;
         }
 
@@ -48,14 +48,14 @@ int olsr_parse_packet(capture_session *session, const struct pcap_pkthdr *const 
         case HELLO_MESSAGE:
         case HELLO_LQ_MESSAGE: {
             struct olsr_hello_message hello_message = { message };
-            if (olsr_handle_hello_message(&data, key, &hello_message))
+            if (olsr_handle_hello_message(&pkt->data, key, &hello_message))
                 return -1;
             break;
         }
         case TC_MESSAGE:
         case TC_LQ_MESSAGE: {
             struct olsr_tc_message tc_message = { message };
-            if (olsr_handle_tc_message(&data, key, &tc_message))
+            if (olsr_handle_tc_message(&pkt->data, key, &tc_message))
                 return -1;
             break;
         }
@@ -65,7 +65,7 @@ int olsr_parse_packet(capture_session *session, const struct pcap_pkthdr *const 
         }
 
         // Point to the end of the message
-        data = message.end;
+        pkt->data = message.end;
     }
 
 
