@@ -1,4 +1,7 @@
-set(OPENWRT_SDK /path/to/openwrt/sdk)
+# Set the path to the OpenWRT buildroot and start compilation using 
+# cmake -DCMAKE_TOOLCHAIN_FILE=./path/to/this/file.cmake .
+
+set(OPENWRT_SDK /path/to/openwrt/buildroot)
 
 # this one is important
 SET(CMAKE_SYSTEM_NAME Linux)
@@ -28,7 +31,7 @@ set(CCOMPILER "${ARCH}-openwrt-linux-gcc")
 set(CXXCOMPILER "${ARCH}-openwrt-linux-g++")
 
 link_directories(${TOOLCHAIN_DIR}/lib ${STAGING_DIR}/lib)
-
+include_directories(${TOOLCHAIN_DIR}/usr/include ${STAGING_DIR}/usr/include)
 # Need to simulate default rpath for libs
 # CMAKE_EXE_LINKER_FLAGS is override by the module CMakeCommonLanguageInclude.cmake 
 # so the only way I found was to use this obscure variable :)
