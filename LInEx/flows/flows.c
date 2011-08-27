@@ -55,6 +55,8 @@ int start_capture_session(capture_session *session, uint16_t export_timeout) {
 
     session->export_timeout = export_timeout;
     session->flow_database = kh_init(1);
+    session->packet_buffer = NULL;
+    session->packet_buffer_size = 0;
 
     return 0;
 }
