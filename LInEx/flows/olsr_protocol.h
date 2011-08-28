@@ -165,7 +165,8 @@ pkt_get_reltime(const uint8_t ** p, olsr_reltime * var)
 static inline void
 pkt_get_ip_address(const uint8_t ** p, union olsr_ip_addr * var, enum network_protocol_t type) {
     if (type == IPv4) {
-        pkt_get_u32(p, &var->v4.s_addr);
+        var->v4.s_addr = *((uint32_t *) *p);
+        *p += sizeof(uint32_t);
     } else {
         memcpy(&var->v6.s6_addr, *p, sizeof(var->v6));
         *p += sizeof(var->v6);
