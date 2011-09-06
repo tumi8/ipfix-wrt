@@ -156,10 +156,7 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
     pkt_get_u16(data, &message->ansn); // ANSN
     pkt_ignore_u16(data); // Reserved
 
-    if (message->comm.type == TC_LQ_MESSAGE) {
-        pkt_get_u8(data, &message->lower_border);
-        pkt_get_u8(data, &message->upper_border);
-    }
+    DPRINTF("TC ASN: %d", message->ansn);
 
     struct topology_set *ts = find_or_create_topology_set(&message->comm.orig);
 
@@ -173,7 +170,7 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
     struct topology_set_entry *ts_entry = ts->first;
 
     while (ts_entry != NULL) {
-        if (!SEQNO_GREATER_THAN(message->ansn, ts_entry->seq)) {
+        if (SEQNO_GREATER_THAN(ts_entry->seq, message->ansn)) {
             msg(MSG_INFO, "Stored sequence number is larger than received packet. Ignoring TC message.");
 
             return 0;
@@ -186,6 +183,8 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
         union olsr_ip_addr addr;
 
         pkt_get_ip_address(data, &addr, key->protocol);
+
+        DPRINTF("TC Neighbor entry: %s", inet_ntoa(addr.v4));
 
         if (message->comm.type == TC_LQ_MESSAGE) {
             pkt_ignore_u32(data);
