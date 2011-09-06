@@ -10,6 +10,7 @@ ADD_EXECUTABLE(LInEx
 	config_file.c
 	ipfix_data.c
 	ipfix_templates.c
+	event_loop.c
 	list.c
 	load_data.c
 	transform_rules.c

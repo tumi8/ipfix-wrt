@@ -151,6 +151,7 @@ typedef struct flow_info_t {
 
 int start_capture_session(capture_session *session, uint16_t export_timeout);
 void stop_capture_session(capture_session *session);
-int capture(capture_session *session);
+
+void flow_export_callback(capture_session *session);
 
 #endif

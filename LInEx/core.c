@@ -37,6 +37,15 @@
 #include "flows/flows.h"
 #include "flows/topology_set.h"
 #include "flows/export.h"
+#include "event_loop.h"
+
+struct export_record_parameters {
+	ipfix_exporter *exporter;
+	config_file_descriptor* conf;
+	FILE *xmlfh;
+};
+
+void export_records(struct export_record_parameters *params);
 
 regex_t param_regex;
 regex_t long_param_regex;
@@ -53,8 +62,8 @@ extern khash_t(2) *tc_set;
 void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
 	list_node* cur;
 
-        ipfix_aux_config_udp aux_config; /* Auxiliary parameter for UDP */
-       	aux_config.mtu = 1500;           /* MTU */
+	ipfix_aux_config_udp aux_config; /* Auxiliary parameter for UDP */
+	aux_config.mtu = 1500;           /* MTU */
 	for(cur = conf->collectors->first;cur!=NULL;cur=cur->next){
 		collector_descriptor* cur_descriptor = (collector_descriptor*)cur->data;
 		int ret = ipfix_add_collector(exporter, cur_descriptor->ip, cur_descriptor->port, UDP, &aux_config);
@@ -149,28 +158,26 @@ int main(int argc, char **argv)
 	generate_templates_from_config(send_exporter,conf);
 	msg(MSG_DIALOG, "LInEx is up and running. Press Ctrl-C to exit.");
 
-        // Start capturing sessions
-        capture_session session;
+	// Start capturing sessions
+	capture_session session;
 
-        if (start_capture_session(&session, 30))
-            msg(MSG_ERROR, "Failed to start capture session.");
-        else {
-            struct lnode *node = conf->interfaces->first;
+	if (start_capture_session(&session, 30))
+		msg(MSG_ERROR, "Failed to start capture session.");
+	else {
+		struct lnode *node = conf->interfaces->first;
 
-            while (node != NULL) {
-                    char *interface = (char *) node->data;
-                    if (add_interface(&session, interface, 1))
-                        msg(MSG_ERROR, "Failed to add interface %s to capture session.", interface);
+		while (node != NULL) {
+			char *interface = (char *) node->data;
+			if (add_interface(&session, interface, 1))
+				msg(MSG_ERROR, "Failed to add interface %s to capture session.", interface);
 
-                    node = node->next;
-            }
-        }
+			node = node->next;
+		}
+	}
 
-
-
-        // Declare IPFIX templates to export monitoring information
-        if (declare_templates(send_exporter))
-            msg(MSG_ERROR, "Failed to export templates.");
+	// Declare IPFIX templates to export monitoring information
+	if (declare_templates(send_exporter))
+		msg(MSG_ERROR, "Failed to export templates.");
 
 	//Open XML file
 	FILE* xmlfh = NULL;
@@ -180,55 +187,60 @@ int main(int argc, char **argv)
 			THROWEXCEPTION("Could not open XML file %s", conf->xmlfile);
 	}
 
-	//Periodically, send the configured datasets
-	unsigned long i = 0;
-	unsigned timeout;
-	time_t now;
-	char timestr[20];
+	// Add timer to export routing tables
+	struct export_parameters params = { send_exporter, tc_set };
+	event_loop_add_timer(10000, (void (*)(void *)) &export_full, &params);
 
-	while(1){
-		i++;
-		now = time(NULL);
-		strftime(timestr, 20, "%X", localtime(&now));
-		msg(MSG_DIALOG, "Export status at %s (round %d)", timestr, i);
-		if(conf->record_descriptors->size>0 && conf->collectors->size>0) {
-			msg(MSG_INFO, "Exporting IPFIX messages...");
-			config_to_ipfix(send_exporter, conf);
-		}
-		if(xmlfh != NULL) {
-			msg(MSG_INFO, "Updating XML file %s", conf->xmlfile);
-			config_to_xml(xmlfh, conf);
-			//Optional XML postprocessing
-			if(conf->xmlpostprocessing != NULL) {
-				//Kill old XML postprocessing child if it is still alive
-				if(childpid != -1) {
-					msg(MSG_FATAL, "XML postprocessing has not terminated in time. Killing it.");
-					kill(childpid, SIGKILL);
-				}
-				//Create new XML postprocessing child
-				if((childpid = fork()) == -1) {
-					msg(MSG_FATAL, "Could not fork. XML postprocessing skipped.");
-				}
-				if(childpid == 0) {
-					msg(MSG_INFO, "Trigger XML postprocessing.");
-					int ret = system(conf->xmlpostprocessing);
-					exit(ret);
-				}
-			}
-		}
+	// Add timer to export flows
+	event_loop_add_timer(5000, (void (*)(void *)) &flow_export_callback, &session);
 
-                capture(&session);
+	// Add timer to export records
+	struct export_record_parameters record_params = { send_exporter, conf, xmlfh };
+	event_loop_add_timer(conf->interval * 1000, (void (*)(void *)) &export_records, &record_params);
 
-                export_full(send_exporter, tc_set);
-
-		timeout = conf->interval;
-                // while(timeout = sleep(timeout)) {}
-	}
-
-	//Dead code :)
-	return 0;
+	return event_loop_run();
 }
 
+void export_records(struct export_record_parameters *params) {
+	time_t now = time(NULL);
+	char timestr[20];
+	ipfix_exporter *send_exporter = params->exporter;
+	config_file_descriptor* conf = params->conf;
+	FILE *xmlfh = params->xmlfh;
+
+	strftime(timestr, 20, "%X", localtime(&now));
+
+	msg(MSG_DIALOG, "Export status at %s", timestr);
+
+	if(conf->record_descriptors->size>0 && conf->collectors->size>0) {
+		msg(MSG_INFO, "Exporting IPFIX messages...");
+
+		config_to_ipfix(send_exporter, conf);
+	}
+
+	if(xmlfh != NULL) {
+		msg(MSG_INFO, "Updating XML file %s", conf->xmlfile);
+		config_to_xml(xmlfh, conf);
+		//Optional XML postprocessing
+		if(conf->xmlpostprocessing != NULL) {
+			//Kill old XML postprocessing child if it is still alive
+			if(childpid != -1) {
+				msg(MSG_FATAL, "XML postprocessing has not terminated in time. Killing it.");
+				kill(childpid, SIGKILL);
+			}
+			//Create new XML postprocessing child
+			if((childpid = fork()) == -1) {
+				msg(MSG_FATAL, "Could not fork. XML postprocessing skipped.");
+			}
+			if(childpid == 0) {
+				msg(MSG_INFO, "Trigger XML postprocessing.");
+				int ret = system(conf->xmlpostprocessing);
+				exit(ret);
+			}
+		}
+	}
+
+}
 
 
 

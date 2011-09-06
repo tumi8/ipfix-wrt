@@ -28,7 +28,6 @@ static int declare_base_full_template(ipfix_exporter *exporter) {
     if (ipfix_end_template(exporter, FULL_BASE_TEMPLATE_ID))
         return -1;
 
-
     return 0;
 }
 
@@ -276,9 +275,12 @@ static int add_data_record_and_send(ipfix_exporter *exporter, u_char *buffer, si
 /**
   * Performs a full export.
   */
-int export_full(ipfix_exporter *exporter, khash_t(2) *tc_set) {
+void export_full(struct export_parameters *params) {
+	ipfix_exporter *exporter = params->exporter;
+	khash_t(2) *tc_set = params->tc_set;
+
     if (tc_set == NULL || exporter == NULL)
-        return -1;
+		return;
 
     khiter_t k;
 
@@ -299,7 +301,7 @@ int export_full(ipfix_exporter *exporter, khash_t(2) *tc_set) {
             if (ipfix_start_data_set(exporter, htons(FULL_BASE_TEMPLATE_ID))) {
                 msg(MSG_ERROR, "Failed to start data set.");
 
-                return -1;
+				return;
             }
 
             uint16_t total_space = ipfix_get_remaining_space(exporter);
@@ -309,7 +311,7 @@ int export_full(ipfix_exporter *exporter, khash_t(2) *tc_set) {
                 msg(MSG_ERROR, "Failed to allocate memory for IPFIX data record.");
 
                 ipfix_cancel_data_set(exporter);
-                return -1;
+				return;
             }
 
             buffer_pos = buffer;
@@ -320,7 +322,7 @@ int export_full(ipfix_exporter *exporter, khash_t(2) *tc_set) {
                 msg(MSG_ERROR, "IPFIX remaining space not enough to even add record header.");
 
                 ipfix_cancel_data_set(exporter);
-                return -1;
+				return;
             }
 
             pkt_put_u16(&buffer_pos, 0x0); // TODO - Fill sequence number
@@ -339,7 +341,7 @@ int export_full(ipfix_exporter *exporter, khash_t(2) *tc_set) {
             default:
                 msg(MSG_ERROR, "Unsupported network protocol.");
 
-                return -1;
+				return;
             }
         }
 
@@ -351,7 +353,7 @@ int export_full(ipfix_exporter *exporter, khash_t(2) *tc_set) {
             pkt_put_u16(&len_ptr, (uint16_t) total_host_info_length);
 
             if (add_data_record_and_send(exporter, buffer, buffer_pos - buffer))
-                return -1;
+				return;
 
             buffer = NULL;
             k--;
@@ -362,15 +364,13 @@ int export_full(ipfix_exporter *exporter, khash_t(2) *tc_set) {
     }
 
     if (buffer == NULL)
-        return 0;
+		return;
 
     // Write the length of the host info template list
     pkt_put_u16(&len_ptr, (uint16_t) total_host_info_length);
 
     if (add_data_record_and_send(exporter, buffer, buffer_pos - buffer))
-        return -1;
-
-    return 0;
+		return;
 }
 
 

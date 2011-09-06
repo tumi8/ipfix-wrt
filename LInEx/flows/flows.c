@@ -1,6 +1,7 @@
 #include "flows.h"
 #include "../ipfixlolib/msg.h"
 #include "olsr.h"
+#include "../event_loop.h"
 
 #include <arpa/inet.h>
 #include <netinet/ether.h>
@@ -22,6 +23,8 @@ static int parse_ipv4(capture_session *session, struct pktinfo *pkt);
 static int parse_ipv6(capture_session *session, struct pktinfo *pkt);
 static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
 static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
+
+void capture_callback(int fd, capture_session *session);
 
 /**
   * Compiled BPF filter: tcpdump -dd "not ether src de:ad:be:ef:aa:aa and (ip or ip6)"
@@ -208,30 +211,30 @@ int add_interface(capture_session *session, char *device_name, bool enable_promi
         session->packet_buffer_size = mtu;
     }
 
-    // Update pollfd list
-    if (session->interface_count == 0) {
-        session->pollfd = (struct pollfd *) malloc(sizeof(struct pollfd));
-    } else {
-        struct pollfd *resized = (struct pollfd *) realloc(session->pollfd, session->interface_count + 1);
+	// Update pollfd list
+	if (session->interface_count == 0) {
+		session->pollfd = (struct pollfd *) malloc(sizeof(struct pollfd));
+	} else {
+		struct pollfd *resized = (struct pollfd *) realloc(session->pollfd, session->interface_count + 1);
 
-        if (resized == NULL) {
-            msg(MSG_ERROR, "Failed to allocate memory for new interface.");
-            close(fd);
-            return -1;
-        }
+		if (resized == NULL) {
+			msg(MSG_ERROR, "Failed to allocate memory for new interface.");
+			close(fd);
+			return -1;
+		}
 
-        session->pollfd = resized;
-    }
+		session->pollfd = resized;
+	}
 
+	session->interface_count++;
 
+	struct pollfd *entry = session->pollfd + (session->interface_count - 1);
 
-    session->interface_count++;
+	entry->fd = fd;
+	entry->events = POLLIN;
+	entry->revents = 0;
 
-    struct pollfd *entry = session->pollfd + (session->interface_count - 1);
-
-    entry->fd = fd;
-    entry->events = POLLIN;
-    entry->revents = 0;
+	event_loop_add_fd(fd, (void (*)(int, void *)) &capture_callback, session);
 
     return 0;
 }
@@ -469,70 +472,47 @@ static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *fl
     return 0;
 }
 
-/**
-  * Captures pending packets from the interface.
-  *
-  * Returns the number of packets captured or -1 on error.
-  */
-int capture(capture_session *session) {
-    ssize_t packets_captured = 0;
-    union {
-        struct sockaddr_ll ll_addr;
-        struct sockaddr addr;
-    } addr;
-    socklen_t addr_len;
+void capture_callback(int fd, capture_session *session) {
+	union {
+		struct sockaddr_ll ll_addr;
+		struct sockaddr addr;
+	} addr;
 
-    int ret = 0;
+	socklen_t addr_len = sizeof(struct sockaddr_ll);
+	size_t len = recvfrom(fd, session->packet_buffer, session->packet_buffer_size, 0, (struct sockaddr *) &addr.addr, &addr_len);
 
-    if (session->pollfd == NULL)
-        return -1;
+	if (len == -1) {
+		msg(MSG_ERROR, strerror(errno));
+		return;
+	}
 
-    while ((ret = poll(session->pollfd, session->interface_count, 500)) > 0) {
-        struct pollfd *fd;
-        struct pollfd *end_fd = session->pollfd + session->interface_count;
+	struct pktinfo pkt = { session->packet_buffer, session->packet_buffer + len, session->packet_buffer };
 
-        for (fd = session->pollfd; fd < end_fd; fd++) {
-            if (!(fd->revents & POLLIN))
-                continue;
+	parse_ethernet(session, &pkt);
+}
 
-            addr_len = sizeof(struct sockaddr_ll);
+void flow_export_callback(capture_session *session) {
+	// Export pending flows
+	time_t now = time(NULL);
 
-            size_t len = recvfrom(fd->fd, session->packet_buffer, session->packet_buffer_size, 0, (struct sockaddr *) &addr.addr, &addr_len);
+	khiter_t k;
+	for (k = kh_begin(session->flow_database); k != kh_end(session->flow_database); ++k) {
+		if (!kh_exist(session->flow_database, k))
+			continue;
 
-            if (len == -1) {
-                msg(MSG_ERROR, strerror(errno));
+		flow_key *key = kh_key(session->flow_database, k);
+		flow_info *info = kh_value(session->flow_database, k);
 
-                return -1;
-            }
+		if (now - info->last_packet_timestamp < session->export_timeout)
+			continue;
 
-            struct pktinfo pkt = { session->packet_buffer, session->packet_buffer + len, session->packet_buffer };
-            parse_ethernet(session, &pkt);
-        }
-    }
+		kh_del(1, session->flow_database, k);
 
-    // Export pending flows
-    time_t now = time(NULL);
+		msg(MSG_INFO, "Going to export flow: %p\n", key);
 
-    khiter_t k;
-    for (k = kh_begin(session->flow_database); k != kh_end(session->flow_database); ++k) {
-        if (!kh_exist(session->flow_database, k))
-            continue;
-
-        flow_key *key = kh_key(session->flow_database, k);
-        flow_info *info = kh_value(session->flow_database, k);
-
-        if (now - info->last_packet_timestamp < session->export_timeout)
-            continue;
-
-        kh_del(1, session->flow_database, k);
-
-        msg(MSG_INFO, "Going to export flow: %p\n", key);
-
-        free(key);
-        free(info);
-    }
-
-    return packets_captured;
+		free(key);
+		free(info);
+	}
 }
 
 static uint32_t flow_key_hash_code_ipv4(ipv4_flow_key *key, uint32_t hashcode) {

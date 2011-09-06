@@ -23,6 +23,11 @@ enum olsr_ipfix_type {
 #define HOST_INFO_IPV6_TEMPLATE_ID 892
 #define TARGET_HOST_IPV6_TEMPLATE_ID 893
 
+struct export_parameters {
+	ipfix_exporter *exporter;
+	khash_t(2) *tc_set;
+};
+
 int declare_templates(ipfix_exporter *exporter);
-int export_full(ipfix_exporter *exporter, khash_t(2) *tc_set);
+void export_full(struct export_parameters *params);
 #endif
