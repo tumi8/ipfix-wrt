@@ -5,12 +5,11 @@
 #include "flows.h"
 #include "olsr_protocol.h"
 
-
-
 struct topology_set_entry {
     union olsr_ip_addr dest_addr;
     uint16_t seq;
     time_t time;
+	uint32_t lq_parameters;
 
     struct topology_set_entry *next;
 };
@@ -22,12 +21,11 @@ struct topology_set {
     struct topology_set_entry *last;
 };
 
-uint32_t ip_addr_hash_code(struct ip_addr_t addr);
-uint32_t ip_addr_eq(struct ip_addr_t a, struct ip_addr_t b);
-
-#define ip_addr_hash_code_macro(key) ip_addr_hash_code(key)
-#define ip_addr_hash_eq_macro(a, b) ip_addr_eq(a, b)
 
 KHASH_INIT(2, struct ip_addr_t, struct topology_set *, 1, ip_addr_hash_code_macro, ip_addr_hash_eq_macro)
 
+typedef khash_t(2) tc_set_hash;
+
+struct topology_set_entry *find_or_create_topology_set_entry(struct topology_set *ts, union olsr_ip_addr *addr);
+struct topology_set *find_or_create_topology_set(tc_set_hash *tc_set, union olsr_ip_addr *addr);
 #endif

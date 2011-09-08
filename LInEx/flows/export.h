@@ -25,7 +25,7 @@ enum olsr_ipfix_type {
 
 struct export_parameters {
 	ipfix_exporter *exporter;
-	khash_t(2) *tc_set;
+	tc_set_hash *tc_set;
 };
 
 int declare_templates(ipfix_exporter *exporter);

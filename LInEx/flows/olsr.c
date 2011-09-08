@@ -1,5 +1,6 @@
 #include "olsr.h"
 #include "topology_set.h"
+#include "hello_set.h"
 #include "olsr_protocol.h"
 #include "../ipfixlolib/msg.h"
 
@@ -7,7 +8,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-khash_t(2) *tc_set = NULL;
+tc_set_hash *tc_set = NULL;
+hello_set_hash *hello_set = NULL;
 
 static int olsr_parse_packet_header(const u_char **data, const u_char *const end_data, struct olsr_packet *packet_hdr);
 static int olsr_parse_message(const u_char **data, const u_char *const end_data, const flow_key *const key, struct olsr_common *message);
@@ -28,6 +30,14 @@ int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_
             return -1;
         }
     }
+	if (hello_set == NULL) {
+		hello_set = kh_init(3);
+
+		if (hello_set == NULL) {
+			msg(MSG_ERROR, "Failed to allocate memory for Hello set.");
+			return -1;
+		}
+	}
 
     struct olsr_packet packet;
     if (olsr_parse_packet_header(&pkt->data, pkt->end_data, &packet)) {
@@ -73,74 +83,6 @@ int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_
 }
 
 /**
-  * Attempts to find the topology set stored in the global topology control set
-  * associated with the given network address.
-  *
-  * Returns a reference to the topology set (which may be newly created) or NULL
-  * if the dynamic memory allocation failed.
-  */
-static struct topology_set *find_or_create_topology_set(union olsr_ip_addr *addr) {
-    struct ip_addr_t originator_addr = { IPv4, *addr };
-    khiter_t k;
-
-    k = kh_get(2, tc_set, originator_addr);
-
-    if (k == kh_end(tc_set)) {
-        // Create new entry
-        struct topology_set *ts = (struct topology_set *) calloc(1, sizeof(struct topology_set));
-
-        int ret;
-        k = kh_put(2, tc_set, originator_addr, &ret);
-        kh_value(tc_set, k) = ts;
-
-        return ts;
-    }
-
-    return kh_value(tc_set, k);
-}
-
-/**
-  * Attempts to find the topology set entry stored in the given topology set which has
-  * the given network address. This function will create a new entry in the topology
-  * set if an existing one could not be found.
-  *
-  * Returns a reference to the topology set entry (which may be newly created) or NULL
-  * if the dynamic memory allocation failed.
-  */
-static struct topology_set_entry *find_or_create_topology_set_entry(struct topology_set *ts, union olsr_ip_addr *addr) {
-    struct topology_set_entry *ts_entry = ts->first;
-
-    while (ts_entry != NULL) {
-        if (ts->protocol == IPv4) {
-            if (ts_entry->dest_addr.v4.s_addr == addr->v4.s_addr)
-                break;
-        } else {
-            if (memcmp(&ts_entry->dest_addr.v6, &addr->v6, sizeof(addr->v6)))
-                break;
-        }
-
-        ts_entry = ts_entry->next;
-    }
-
-    if (ts_entry == NULL) {
-        ts_entry = (struct topology_set_entry *) calloc (1, sizeof(struct topology_set_entry));
-
-        if (ts_entry == NULL)
-            return NULL;
-
-        ts_entry->dest_addr = *addr;
-        if (ts->last != NULL)
-            ts->last->next = ts_entry;
-        if (ts->first == NULL)
-            ts->first = ts_entry;
-
-        ts->last = ts_entry;
-    }
-
-    return ts_entry;
-}
-
-/**
   * Attemps to parse a TC message.
   *
   * Returns 0 on success, -1 otherwise.
@@ -156,9 +98,7 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
     pkt_get_u16(data, &message->ansn); // ANSN
     pkt_ignore_u16(data); // Reserved
 
-    DPRINTF("TC ASN: %d", message->ansn);
-
-    struct topology_set *ts = find_or_create_topology_set(&message->comm.orig);
+	struct topology_set *ts = find_or_create_topology_set(tc_set, &message->comm.orig);
 
     if (ts == NULL) {
         msg(MSG_ERROR, "Failed to allocate memory for topology set.");
@@ -180,25 +120,27 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
     }
 
     while (*data < message->comm.end) {
-        union olsr_ip_addr addr;
+		union olsr_ip_addr addr;
 
-        pkt_get_ip_address(data, &addr, key->protocol);
+		pkt_get_ip_address(data, &addr, key->protocol);
 
-        DPRINTF("TC Neighbor entry: %s", inet_ntoa(addr.v4));
+		ts_entry = find_or_create_topology_set_entry(ts, &addr);
+		if (ts_entry == NULL) {
+			msg(MSG_ERROR, "Failed to allocate memory for topology set entry.");
+
+			return -1;
+		}
+
+		ts_entry->seq = message->ansn;
+		ts_entry->time = time(NULL) + message->comm.vtime / 10e6;
 
         if (message->comm.type == TC_LQ_MESSAGE) {
-            pkt_ignore_u32(data);
-        }
+			// The LQ value depends on the utilized LQ plugin hence we read the whole 32 bits here so they can
+			// be exported as-is.
 
-        ts_entry = find_or_create_topology_set_entry(ts, &addr);
-        if (ts_entry == NULL) {
-            msg(MSG_ERROR, "Failed to allocate memory for topology set entry.");
 
-            return -1;
-        }
-
-        ts_entry->seq = message->ansn;
-        ts_entry->time = time(NULL) + message->comm.vtime / 10e6;
+			pkt_get_u32(data, &ts_entry->lq_parameters);
+		}
     }
 
     return 0;
@@ -216,13 +158,25 @@ static int olsr_handle_hello_message(const u_char **data, const flow_key *const 
         return -1;
     }
 
+	time_t now = time(NULL);
+
+	struct hello_set *hs = find_or_create_hello_set(hello_set, &message->comm.orig);
+
+	if (hs == NULL) {
+		msg(MSG_ERROR, "Failed to allocate memory for hello set.");
+
+		return -1;
+	}
+
     pkt_ignore_u16(data); // Reserved
     pkt_get_reltime(data, &message->htime);
     pkt_get_u8(data, &message->will);
 
+	hs->htime = now + message->htime;
+
     uint32_t neighbor_entry_len = ip_addr_len(key->protocol);
     if (message->comm.type == HELLO_LQ_MESSAGE)
-        neighbor_entry_len += 4;
+		neighbor_entry_len += 4;
 
     while ((*data + OLSR_HELLO_INFO_HEADER_LEN) <= message->comm.end) {
         struct olsr_hello_message_info info;
@@ -244,8 +198,20 @@ static int olsr_handle_hello_message(const u_char **data, const flow_key *const 
             union olsr_ip_addr addr;
 
             pkt_get_ip_address(data, &addr, key->protocol);
-            if (message->comm.type == HELLO_LQ_MESSAGE)
-                pkt_ignore_u32(data);
+
+			struct hello_set_entry *hs_entry = find_or_create_hello_set_entry(hs, &addr);
+
+			if (hs_entry == NULL) {
+				msg(MSG_ERROR, "Failed to allocate memory for hello_set_entry.");
+				return -1;
+			}
+
+			hs_entry->link_code = info.link_code.val;
+			hs_entry->vtime = now + message->comm.vtime;
+
+			if (message->comm.type == HELLO_LQ_MESSAGE) {
+				pkt_get_u32(data, &hs_entry->lq_parameters);
+			}
         }
     }
 

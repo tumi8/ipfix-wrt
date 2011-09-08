@@ -10,6 +10,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "flows.h"
+
 #include "mantissa.h"
 
 #define OLSR_PACKET_HEADER_LEN 4
@@ -48,6 +50,15 @@ typedef struct ip_addr_t {
     network_protocol protocol;
     union olsr_ip_addr addr;
 } ip_addr;
+
+/**
+  * Hashing functions for IP addresses
+  */
+uint32_t ip_addr_hash_code(struct ip_addr_t addr);
+uint32_t ip_addr_eq(struct ip_addr_t a, struct ip_addr_t b);
+
+#define ip_addr_hash_code_macro(key) ip_addr_hash_code(key)
+#define ip_addr_hash_eq_macro(a, b) ip_addr_eq(a, b)
 
 /**
   * Returns the length (in bytes) of the given network address.
