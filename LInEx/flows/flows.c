@@ -293,9 +293,9 @@ static int parse_ethernet(capture_session *session, struct pktinfo *pkt) {
 
     switch (ntohs(hdr->ether_type)) {
     case ETHERTYPE_IP:
-        parse_ipv4(session, pkt);
+		return parse_ipv4(session, pkt);
     case ETHERTYPE_IPV6:
-        parse_ipv6(session, pkt);
+		return parse_ipv6(session, pkt);
     default:
         return 0;
     }
