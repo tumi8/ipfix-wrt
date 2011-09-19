@@ -6,6 +6,8 @@
 #include <time.h>
 #include <poll.h>
 
+#include <stdbool.h>
+
 #include "khash.h"
 
 // The number of bytes to capture
@@ -153,5 +155,6 @@ int start_capture_session(capture_session *session, uint16_t export_timeout);
 void stop_capture_session(capture_session *session);
 
 void flow_export_callback(capture_session *session);
+int add_interface(capture_session *session, char *device_name, bool enable_promisc);
 
 #endif

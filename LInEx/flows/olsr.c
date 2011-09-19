@@ -22,14 +22,6 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key * const ke
   * Returns 0 if the packet could be parsed sucessfully or -1 if the packet was not a valid OLSR packet.
   */
 int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_key *const key) {
-    if (tc_set == NULL) {
-        tc_set = kh_init(2);
-
-        if (tc_set == NULL) {
-            msg(MSG_ERROR, "Failed to allocate memory for TC set.");
-            return -1;
-        }
-    }
 	if (hello_set == NULL) {
 		hello_set = kh_init(3);
 

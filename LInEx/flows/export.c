@@ -9,6 +9,8 @@ struct template_declaration {
     uint16_t template_id;
 };
 
+static u_char message_buffer[IPFIX_MAX_PACKETSIZE];
+
 /**
   * Declares the base full template. It has the following layout:
   *
@@ -246,29 +248,27 @@ static size_t add_host_info(const struct ip_addr_t *addr, const struct topology_
   * Convenience method which adds the given buffer as a data record to a started
   * data set, ends the data set and transmits it.
   *
-  * If a failure occurs -1 is returned and the buffer is free'd. Otherwise 0
+  * If a failure occurs -1 is returned. Otherwise 0
   * is returned.
   *
   */
 static int add_data_record_and_send(ipfix_exporter *exporter, u_char *buffer, size_t buffer_len) {
     if (ipfix_put_data_field(exporter, buffer, buffer_len)) {
         msg(MSG_ERROR, "Failed to add data record.");
-        free(buffer);
         return -1;
     }
 
     if (ipfix_end_data_set(exporter, 1)) {
         msg(MSG_ERROR, "Failed to end data set.");
-        free(buffer);
         return -1;
     }
 
     if (ipfix_send(exporter)) {
         msg(MSG_ERROR, "Failed to send IPFIX message.");
-        free(buffer);
         return -1;
     }
 
+	free(buffer);
     return 0;
 }
 
@@ -282,9 +282,11 @@ void export_full(struct export_parameters *params) {
     if (tc_set == NULL || exporter == NULL)
 		return;
 
+	msg(MSG_INFO, "Exporting OLSR data");
+
     khiter_t k;
 
-    u_char *buffer = NULL;
+	u_char *buffer = NULL;
     u_char *buffer_end = NULL;
     u_char *buffer_pos = NULL;
     u_char *len_ptr = NULL;
@@ -305,17 +307,10 @@ void export_full(struct export_parameters *params) {
             }
 
             uint16_t total_space = ipfix_get_remaining_space(exporter);
-            buffer = (u_char *) malloc (total_space * sizeof(u_char));
 
-            if (buffer == NULL) {
-                msg(MSG_ERROR, "Failed to allocate memory for IPFIX data record.");
-
-                ipfix_cancel_data_set(exporter);
-				return;
-            }
-
-            buffer_pos = buffer;
-            buffer_end = buffer + total_space;
+			buffer = message_buffer;
+			buffer_pos = buffer;
+			buffer_end = buffer + ((total_space < sizeof(message_buffer)) ? total_space : sizeof(message_buffer));
             total_host_info_length = sizeof(uint8_t) + sizeof(uint16_t); // Start with subtemplateList header
 
             if (total_space < sizeof(uint16_t) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint8_t) + sizeof(uint16_t)) {
@@ -352,8 +347,9 @@ void export_full(struct export_parameters *params) {
 
             pkt_put_u16(&len_ptr, (uint16_t) total_host_info_length);
 
-            if (add_data_record_and_send(exporter, buffer, buffer_pos - buffer))
+			if (add_data_record_and_send(exporter, buffer, buffer_pos - buffer)) {
 				return;
+			}
 
             buffer = NULL;
             k--;
@@ -369,8 +365,9 @@ void export_full(struct export_parameters *params) {
     // Write the length of the host info template list
     pkt_put_u16(&len_ptr, (uint16_t) total_host_info_length);
 
-    if (add_data_record_and_send(exporter, buffer, buffer_pos - buffer))
+	if (add_data_record_and_send(exporter, buffer, buffer_pos - buffer)) {
 		return;
+	}
 }
 
 
