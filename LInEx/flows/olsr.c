@@ -91,6 +91,7 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
     pkt_ignore_u16(data); // Reserved
 
 	struct topology_set *ts = find_or_create_topology_set(tc_set, &message->comm.orig);
+	ts->protocol = key->protocol;
 
     if (ts == NULL) {
         msg(MSG_ERROR, "Failed to allocate memory for topology set.");
