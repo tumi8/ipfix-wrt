@@ -275,6 +275,9 @@ void export_full(struct export_parameters *params) {
 
 	msg(MSG_INFO, "Exporting OLSR data");
 
+	// Expire old entries
+	expire_topology_set_entries(tc_set);
+
 	struct export_status status;
 
 	status.ts_entry = NULL;

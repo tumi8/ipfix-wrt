@@ -110,3 +110,56 @@ struct topology_set_entry *find_or_create_topology_set_entry(struct topology_set
 	return ts_entry;
 }
 
+struct topology_set_entry *topology_set_remove_entry(struct topology_set *set,
+													 struct topology_set_entry *entry,
+													 struct topology_set_entry *previous_entry) {
+	struct topology_set_entry *next = entry->next;
+
+	if (entry == set->first)
+		set->first = entry->next;
+
+	if (entry == set->last)
+		set->last = previous_entry;
+
+	if (previous_entry)
+		previous_entry->next = entry->next;
+
+	free(entry);
+
+	return next;
+}
+
+
+/**
+  * This function removes topology set entries which have expired (i.e. those
+  * entries whose vtime is < current time.
+  */
+void expire_topology_set_entries(tc_set_hash *tc_set) {
+	khiter_t k;
+	time_t now = time(NULL);
+
+	for (k = kh_begin(tc_set); k != kh_end(tc_set); ++k) {
+		if (!kh_exist(tc_set, k))
+			continue;
+
+		struct topology_set *set = kh_value(tc_set, k);
+
+		struct topology_set_entry *entry = set->first;
+		struct topology_set_entry *previous_entry = NULL;
+
+		while (entry != NULL) {
+			if (entry->time < now) {
+				entry = topology_set_remove_entry(set, entry, previous_entry);
+			} else {
+				previous_entry = entry;
+				entry = entry->next;
+			}
+		}
+
+		if (set->first == NULL && set->last == NULL) {
+			// Set is now empty - remove it
+			free(set);
+			kh_del(2, tc_set, k);
+		}
+	}
+}
