@@ -125,7 +125,7 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
 		}
 
 		ts_entry->seq = message->ansn;
-		ts_entry->time = time(NULL) + message->comm.vtime / 10e6;
+		ts_entry->time = time(NULL) + message->comm.vtime / 10e3;
 
         if (message->comm.type == TC_LQ_MESSAGE) {
 			// The LQ value depends on the utilized LQ plugin hence we read the whole 32 bits here so they can
@@ -200,7 +200,7 @@ static int olsr_handle_hello_message(const u_char **data, const flow_key *const 
 			}
 
 			hs_entry->link_code = info.link_code.val;
-			hs_entry->vtime = now + message->comm.vtime;
+			hs_entry->vtime = now + message->comm.vtime / 10e3;
 
 			if (message->comm.type == HELLO_LQ_MESSAGE) {
 				pkt_get_u32(data, &hs_entry->lq_parameters);
