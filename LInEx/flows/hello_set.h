@@ -1,9 +1,10 @@
-#ifndef HELLO_SET_H_
-#define HELLO_SET_H_
+#ifndef HELLO_SET_H
+#define HELLO_SET_H
 
 #include "olsr_protocol.h"
 #include "khash.h"
 #include "flows.h"
+#include "node_set.h"
 
 struct hello_set_entry {
 	union olsr_ip_addr neighbor_addr;
@@ -22,11 +23,10 @@ struct hello_set {
 	struct hello_set_entry *last;
 };
 
-KHASH_INIT(3, struct ip_addr_t, struct hello_set *, 1, ip_addr_hash_code_macro, ip_addr_hash_eq_macro)
+struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
+										   union olsr_ip_addr *addr);
+struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs,
+													   union olsr_ip_addr *addr);
 
-typedef khash_t(3) hello_set_hash;
-
-struct hello_set *find_or_create_hello_set(hello_set_hash *hello_set, union olsr_ip_addr *addr);
-struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs, union olsr_ip_addr *addr);
-
-#endif HELLO_SET_H_
+void expire_hello_set_entries(struct hello_set *set, time_t now);
+#endif

@@ -1,31 +1,27 @@
 #include "hello_set.h"
 
 /**
-  * Attempts to find the hello set stored in the given hello set \a hello_set
+  * Attempts to find the hello set stored in the given node set \a node_set
   * associated with the given network address.
   *
   * Returns a reference to the hello set (which may be newly created) or NULL
   * if the dynamic memory allocation failed.
   */
-struct hello_set *find_or_create_hello_set(hello_set_hash *hello_set, union olsr_ip_addr *addr) {
+struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
+										   union olsr_ip_addr *addr) {
 	struct ip_addr_t originator_addr = { IPv4, *addr };
-	khiter_t k;
+	struct node_entry *node_entry = find_or_create_node_entry(node_set,
+															  &originator_addr);
 
-	k = kh_get(3, hello_set, originator_addr);
-
-	if (k == kh_end(hello_set)) {
+	if (!node_entry->hello_set) {
 		// Create new entry
 		struct hello_set *hs = (struct hello_set *) malloc(sizeof(struct hello_set));
 		hs->first = hs->last = NULL;
 
-		int ret;
-		k = kh_put(3, hello_set, originator_addr, &ret);
-		kh_value(hello_set, k) = hs;
-
-		return hs;
+		node_entry->hello_set = hs;
 	}
 
-	return kh_value(hello_set, k);
+	return node_entry->hello_set;
 }
 
 /**
@@ -68,4 +64,41 @@ struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs, uni
 	}
 
 	return hs_entry;
+}
+
+struct hello_set_entry *hello_set_remove_entry(struct hello_set *set,
+											   struct hello_set_entry *entry,
+											   struct hello_set_entry *previous_entry) {
+	struct hello_set_entry *next = entry->next;
+
+	if (entry == set->first)
+		set->first = entry->next;
+
+	if (entry == set->last)
+		set->last = previous_entry;
+
+	if (previous_entry)
+		previous_entry->next = entry->next;
+
+	free(entry);
+
+	return next;
+}
+
+/**
+  * Expires the entries in the hello set (i.e. if their validity time is less
+  * then the time specified in \a now.
+  */
+void expire_hello_set_entries(struct hello_set *set, time_t now) {
+	struct hello_set_entry *entry = set->first;
+	struct hello_set_entry *previous_entry = NULL;
+
+	while (entry != NULL) {
+		if (entry->vtime < now) {
+			entry = hello_set_remove_entry(set, entry, previous_entry);
+		} else {
+			previous_entry = entry;
+			entry = entry->next;
+		}
+	}
 }

@@ -4,6 +4,7 @@
 #include "khash.h"
 #include "flows.h"
 #include "olsr_protocol.h"
+#include "node_set.h"
 
 struct topology_set_entry {
 	union olsr_ip_addr dest_addr;
@@ -21,17 +22,12 @@ struct topology_set {
 	struct topology_set_entry *last;
 };
 
-
-KHASH_INIT(2, struct ip_addr_t, struct topology_set *, 1, ip_addr_hash_code_macro, ip_addr_hash_eq_macro)
-
-typedef khash_t(2) tc_set_hash;
-
 struct topology_set_entry
 		*find_or_create_topology_set_entry(struct topology_set *ts,
 										   union olsr_ip_addr *addr);
 
-struct topology_set *find_or_create_topology_set(tc_set_hash *tc_set,
+struct topology_set *find_or_create_topology_set(node_set_hash *node_set,
 												 union olsr_ip_addr *addr);
 
-void expire_topology_set_entries(tc_set_hash *tc_set);
+void expire_topology_set_entries(struct topology_set *ts, time_t now);
 #endif

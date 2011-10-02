@@ -8,8 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-tc_set_hash *tc_set = NULL;
-hello_set_hash *hello_set = NULL;
+node_set_hash *node_set = NULL;
 
 static int olsr_parse_packet_header(const u_char **data, const u_char *const end_data, struct olsr_packet *packet_hdr);
 static int olsr_parse_message(const u_char **data, const u_char *const end_data, const flow_key *const key, struct olsr_common *message);
@@ -22,15 +21,6 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key * const ke
   * Returns 0 if the packet could be parsed sucessfully or -1 if the packet was not a valid OLSR packet.
   */
 int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_key *const key) {
-	if (hello_set == NULL) {
-		hello_set = kh_init(3);
-
-		if (hello_set == NULL) {
-			msg(MSG_ERROR, "Failed to allocate memory for Hello set.");
-			return -1;
-		}
-	}
-
     struct olsr_packet packet;
     if (olsr_parse_packet_header(&pkt->data, pkt->end_data, &packet)) {
         return -1;
@@ -90,7 +80,8 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
     pkt_get_u16(data, &message->ansn); // ANSN
     pkt_ignore_u16(data); // Reserved
 
-	struct topology_set *ts = find_or_create_topology_set(tc_set, &message->comm.orig);
+	struct topology_set *ts = find_or_create_topology_set(node_set,
+														  &message->comm.orig);
 	ts->protocol = key->protocol;
 
     if (ts == NULL) {
@@ -153,7 +144,8 @@ static int olsr_handle_hello_message(const u_char **data, const flow_key *const 
 
 	time_t now = time(NULL);
 
-	struct hello_set *hs = find_or_create_hello_set(hello_set, &message->comm.orig);
+	struct hello_set *hs = find_or_create_hello_set(node_set,
+													&message->comm.orig);
 
 	if (hs == NULL) {
 		msg(MSG_ERROR, "Failed to allocate memory for hello set.");

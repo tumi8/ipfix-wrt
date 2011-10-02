@@ -19,6 +19,7 @@ ADD_EXECUTABLE(LInEx
 	flows/mantissa.c
 	flows/topology_set.c
 	flows/hello_set.c
+	flows/node_set.c
 	flows/export.c
 	flows/olsr_protocol.h
 )

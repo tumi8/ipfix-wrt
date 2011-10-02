@@ -53,8 +53,7 @@ regex_t long_param_regex;
 regmatch_t param_matches[3];
 char* config_file = NULL;
 pid_t childpid = -1;
-extern tc_set_hash *tc_set;
-extern hello_set_hash *hello_set;
+extern node_set_hash *node_set;
 
 /**
  * Takes all collectors from config file <conf>
@@ -190,10 +189,9 @@ int main(int argc, char **argv)
 	}
 
 	// Add timer to export routing tables
-	tc_set = kh_init(2);
-	hello_set = kh_init(3);
+	node_set = kh_init(2);
 
-	struct export_parameters params = { send_exporter, tc_set };
+	struct export_parameters params = { send_exporter, node_set };
 	event_loop_add_timer(2000, (void (*)(void *)) &export_full, &params);
 
 	// Add timer to export flows

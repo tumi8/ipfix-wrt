@@ -11,7 +11,7 @@
 #include <arpa/inet.h>
 
 #include "flows.h"
-
+#include "../ipfixlolib/msg.h"
 #include "mantissa.h"
 
 #define OLSR_PACKET_HEADER_LEN 4
@@ -52,15 +52,6 @@ typedef struct ip_addr_t {
 } ip_addr;
 
 /**
-  * Hashing functions for IP addresses
-  */
-uint32_t ip_addr_hash_code(struct ip_addr_t addr);
-uint32_t ip_addr_eq(struct ip_addr_t a, struct ip_addr_t b);
-
-#define ip_addr_hash_code_macro(key) ip_addr_hash_code(key)
-#define ip_addr_hash_eq_macro(a, b) ip_addr_eq(a, b)
-
-/**
   * Returns the length (in bytes) of the given network address.
   */
 static inline uint16_t ip_addr_len(enum network_protocol_t type) {
@@ -70,7 +61,7 @@ static inline uint16_t ip_addr_len(enum network_protocol_t type) {
     case IPv6:
         return sizeof(struct in6_addr);
     default:
-        return 0;
+		THROWEXCEPTION("Unsupported IP address type %d", type);
     }
 }
 
