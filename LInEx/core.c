@@ -150,6 +150,13 @@ int main(int argc, char **argv)
 	if (ret != 0) {
 		THROWEXCEPTION("ipfix_init_exporter failed!\n");
 	}
+	if (strlen(conf->compression_method) > 0) {
+		ret = ipfix_init_compression(send_exporter,
+									 conf->compression_method,
+									 conf->compression_method_params);
+		if (ret)
+			THROWEXCEPTION("Failed to initialize compression module.");
+	}
 
 	//Add collectors from config file
 	init_collectors(conf,send_exporter);

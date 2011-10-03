@@ -90,12 +90,14 @@ typedef struct{
 	list* record_descriptors;
 	list* xmlrecord_descriptors;
 	list* collectors;
-        list* interfaces;
+	list* interfaces;
 	unsigned interval;
 	uint32_t observation_domain_id;
 	int verbose;
 	char* xmlfile;
 	char* xmlpostprocessing;
+	char* compression_method;
+	char* compression_method_params;
 } config_file_descriptor;
 
 /**

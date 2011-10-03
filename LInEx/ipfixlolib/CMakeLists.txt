@@ -25,3 +25,7 @@ ADD_LIBRARY(ipfixlolib
 	ipfix_names.c
 )
 
+ADD_LIBRARY(deflate SHARED
+	compression/deflate.c
+)
+TARGET_LINK_LIBRARIES(deflate z)

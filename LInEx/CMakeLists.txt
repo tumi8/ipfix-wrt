@@ -2,7 +2,7 @@ project(LInEx)
 cmake_minimum_required(VERSION 2.6)
 
 set(CMAKE_C_FLAGS "-Wall -Wstrict-aliasing=2 -fstrict-aliasing -O0")
-add_definitions(-DDEBUG -DSUPPORT_SCTP)
+add_definitions(-DDEBUG -DSUPPORT_SCTP -DSUPPORT_COMPRESSION)
 SUBDIRS(ipfixlolib)
 
 ADD_EXECUTABLE(LInEx
@@ -27,4 +27,5 @@ ADD_EXECUTABLE(LInEx
 
 TARGET_LINK_LIBRARIES(LInEx
 	ipfixlolib
+	dl
 )

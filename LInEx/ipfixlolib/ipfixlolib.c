@@ -42,6 +42,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#ifdef SUPPORT_COMPRESSION
+#include <dlfcn.h>
+#endif
+
 #ifdef __linux__
 /* Copied from linux/in.h */
 #define IP_MTU          14
@@ -71,6 +75,9 @@ static int init_send_sctp_socket(struct sockaddr_in serv_addr);
 #ifdef SUPPORT_DTLS_OVER_SCTP
 static void handle_sctp_event(BIO *bio, void *context, void *buf);
 #endif
+#endif
+#ifdef SUPPORT_COMPRESSION
+static int ipfix_compress_packet(ipfix_exporter *exporter);
 #endif
 static int init_send_udp_socket(struct sockaddr_in serv_addr);
 static int enable_pmtu_discovery(int s);
@@ -912,7 +919,10 @@ int ipfix_init_exporter(uint32_t observation_domain_id, ipfix_exporter **exporte
 	tmp->ca_file = NULL;
 	tmp->ca_path = NULL;
 #endif
-
+#ifdef SUPPORT_COMPRESSION
+	tmp->compression_handle = NULL;
+	tmp->compression_function = NULL;
+#endif
         // initialize the sendbuffers
         ret=ipfix_init_sendbuffer(&(tmp->data_sendbuffer));
         if (ret != 0) {
@@ -1723,6 +1733,8 @@ static int ipfix_reset_sendbuffer(ipfix_sendbuffer *sendbuf)
         sendbuf->marker = HEADER_USED_IOVEC_COUNT;
         sendbuf->committed_data_length = 0;
 
+		sendbuf->entries[0].iov_len = sizeof(ipfix_header);
+		sendbuf->entries[0].iov_base = &(sendbuf->packet_header);
         memset(&(sendbuf->packet_header), 0, sizeof(ipfix_header));
 
         // also reset the set_manager!
@@ -2412,42 +2424,45 @@ static int ipfix_send_templates(ipfix_exporter* exporter)
  */
 static int ipfix_send_data(ipfix_exporter* exporter)
 {
-        int i;
+	int i;
 	int bytes_sent;
-        // send the current data_sendbuffer:
-        int data_length=0;
-        
-        // is there data to send?
-        if (exporter->data_sendbuffer->committed_data_length > 0 ) {
-                data_length = exporter->data_sendbuffer->committed_data_length;
+	// send the current data_sendbuffer:
+	int data_length=0;
 
-                // prepend a header to the sendbuffer
-                ipfix_prepend_header(exporter, data_length, exporter->data_sendbuffer);
+	// is there data to send?
+	if (exporter->data_sendbuffer->committed_data_length > 0 ) {
+		data_length = exporter->data_sendbuffer->committed_data_length;
 
-                // send the sendbuffer to all collectors
-                for (i = 0; i < exporter->collector_max_num; i++) {
+		// prepend a header to the sendbuffer
+		ipfix_prepend_header(exporter, data_length, exporter->data_sendbuffer);
+#ifdef SUPPORT_COMPRESSION
+		ipfix_compress_packet(exporter);
+		data_length = exporter->data_sendbuffer->committed_data_length;
+#endif
+		// send the sendbuffer to all collectors
+		for (i = 0; i < exporter->collector_max_num; i++) {
 			ipfix_receiving_collector *col = &exporter->collector_arr[i];
 			if (col->state == C_CONNECTED) {
 #ifdef DEBUG
-                                DPRINTFL(MSG_VDEBUG, "Sending to exporter %s", col->ipv4address);
+				DPRINTFL(MSG_VDEBUG, "Sending to exporter %s", col->ipv4address);
 
-                                // debugging output of data buffer:
+				// debugging output of data buffer:
 				/* Keep in mind that the IPFIX message header (16 bytes) is not included
-				   in committed_data_length */
-                                DPRINTFL(MSG_VDEBUG, "Sendbuffer contains %u bytes (Set headers + records)",  exporter->data_sendbuffer->committed_data_length );
-                                DPRINTFL(MSG_VDEBUG, "Sendbuffer contains %u fields (IPFIX Message header + set headers + records)",  exporter->data_sendbuffer->committed );
-                                int tested_length = 0;
-                                int j;
-                                /*int k;*/
-                                for (j =0; j <  exporter->data_sendbuffer->committed; j++) {
-                                        if(exporter->data_sendbuffer->entries[j].iov_len > 0 ) {
-                                                tested_length += exporter->data_sendbuffer->entries[j].iov_len;
-                                        }
-                                }
+	   in committed_data_length */
+				DPRINTFL(MSG_VDEBUG, "Sendbuffer contains %u bytes (Set headers + records)",  exporter->data_sendbuffer->committed_data_length );
+				DPRINTFL(MSG_VDEBUG, "Sendbuffer contains %u fields (IPFIX Message header + set headers + records)",  exporter->data_sendbuffer->committed );
+				int tested_length = 0;
+				int j;
+				/*int k;*/
+				for (j =0; j <  exporter->data_sendbuffer->committed; j++) {
+					if(exporter->data_sendbuffer->entries[j].iov_len > 0 ) {
+						tested_length += exporter->data_sendbuffer->entries[j].iov_len;
+					}
+				}
 				/* Keep in mind that the IPFIX message header (16 bytes) is not included
-				   in committed_data_length. So there should be a difference of 16 bytes
-				   between tested_length and committed_data_length */
-                                DPRINTFL(MSG_VDEBUG, "Total length of sendbuffer: %u bytes (IPFIX Message header + set headers + records)", tested_length );
+	   in committed_data_length. So there should be a difference of 16 bytes
+	   between tested_length and committed_data_length */
+				DPRINTFL(MSG_VDEBUG, "Total length of sendbuffer: %u bytes (IPFIX Message header + set headers + records)", tested_length );
 #endif
 				switch(col->protocol){
 #ifdef IPFIXLOLIB_RAWDIR_SUPPORT
@@ -2455,61 +2470,61 @@ static int ipfix_send_data(ipfix_exporter* exporter)
 #endif
 				case UDP:
 					if((bytes_sent=writev( col->data_socket,
-						exporter->data_sendbuffer->entries,
-						exporter->data_sendbuffer->committed
-							     )) == -1){
+										   exporter->data_sendbuffer->entries,
+										   exporter->data_sendbuffer->committed
+										   )) == -1){
 						msg(MSG_ERROR, "could not send to %s:%d errno: %s  (UDP)",col->ipv4address, col->port_number, strerror(errno));
 						if (errno == EMSGSIZE) {
-						    msg(MSG_ERROR, "Updating MTU estimate for collector %s:%d",
-							    col->ipv4address,
-							    col->port_number);
-						    /* If update_collector_mtu fails, it calls
-						       remove_collector(). So keep in mind that
-						       the collector might be gone (set to C_UNUSED)
-						       after calling this function. */
-						    update_collector_mtu(exporter, col);
+							msg(MSG_ERROR, "Updating MTU estimate for collector %s:%d",
+								col->ipv4address,
+								col->port_number);
+							/* If update_collector_mtu fails, it calls
+			 remove_collector(). So keep in mind that
+			 the collector might be gone (set to C_UNUSED)
+			 after calling this function. */
+							update_collector_mtu(exporter, col);
 						}
 					}else{
 
 						msg(MSG_VDEBUG, "%d data bytes sent to UDP collector %s:%d",
-								bytes_sent, col->ipv4address, col->port_number);
+							bytes_sent, col->ipv4address, col->port_number);
 					}
 					break;
 #ifdef SUPPORT_DTLS_OVER_SCTP
 				case DTLS_OVER_SCTP:
 					if((bytes_sent=dtls_over_sctp_send( exporter, col,
-						exporter->data_sendbuffer->entries,
-						exporter->data_sendbuffer->committed,
-						exporter->sctp_lifetime
-							     )) == -1){
+														exporter->data_sendbuffer->entries,
+														exporter->data_sendbuffer->committed,
+														exporter->sctp_lifetime
+														)) == -1){
 						msg(MSG_VDEBUG, "could not send to %s:%d (DTLS over SCTP)",col->ipv4address, col->port_number);
 					}else{
 
 						msg(MSG_VDEBUG, "%d data bytes sent to DTLS over SCTP collector %s:%d",
-								bytes_sent, col->ipv4address, col->port_number);
+							bytes_sent, col->ipv4address, col->port_number);
 					}
 					break;
 #endif
 
-#ifdef SUPPORT_SCTP			
+#ifdef SUPPORT_SCTP
 				case SCTP:
 					if((bytes_sent = sctp_sendmsgv(col->data_socket,
-						exporter->data_sendbuffer->entries,
-						exporter->data_sendbuffer->committed,
-						(struct sockaddr*)&(col->addr),
-						sizeof(col->addr),
-						0,0, // payload protocol identifier, flags
-						0,//Stream Number
-						exporter->sctp_lifetime,//packet lifetime in ms(0 = reliable )
-						0 // context
-						)) == -1) {
+												   exporter->data_sendbuffer->entries,
+												   exporter->data_sendbuffer->committed,
+												   (struct sockaddr*)&(col->addr),
+												   sizeof(col->addr),
+												   0,0, // payload protocol identifier, flags
+												   0,//Stream Number
+												   exporter->sctp_lifetime,//packet lifetime in ms(0 = reliable )
+												   0 // context
+												   )) == -1) {
 						// send failed
 						msg(MSG_ERROR, "could not send to %s:%d errno: %s  (SCTP)",col->ipv4address, col->port_number, strerror(errno));
 						// drop data and call sctp_reconnect
 						sctp_reconnect(exporter, i);
-						// if result is C_DISCONNECTED and sctp_reconnect_timer == 0, collector will 
+						// if result is C_DISCONNECTED and sctp_reconnect_timer == 0, collector will
 						// be removed on the next call of ipfix_send_templates()
-							}
+					}
 					msg(MSG_VDEBUG, "%d data bytes sent to SCTP collector %s:%d",
 						bytes_sent, col->ipv4address, col->port_number);
 					break;
@@ -2517,14 +2532,14 @@ static int ipfix_send_data(ipfix_exporter* exporter)
 #ifdef SUPPORT_DTLS
 				case DTLS_OVER_UDP:
 					if((bytes_sent=dtls_send( exporter, col,
-						exporter->data_sendbuffer->entries,
-						exporter->data_sendbuffer->committed
-							     )) == -1){
+											  exporter->data_sendbuffer->entries,
+											  exporter->data_sendbuffer->committed
+											  )) == -1){
 						msg(MSG_VDEBUG, "could not send to %s:%d (DTLS over UDP)",col->ipv4address, col->port_number);
 					}else{
 
 						msg(MSG_VDEBUG, "%d data bytes sent to DTLS over UDP collector %s:%d",
-								bytes_sent, col->ipv4address, col->port_number);
+							bytes_sent, col->ipv4address, col->port_number);
 					}
 					break;
 #endif
@@ -2536,17 +2551,17 @@ static int ipfix_send_data(ipfix_exporter* exporter)
 					sprintf(fnamebuf, "%s/%08d", packet_directory_path, col->packets_written++);
 					int f = creat(fnamebuf, S_IRWXU | S_IRWXG);
 					if(f<0)
-					    msg(MSG_ERROR, "could not open RAWDIR file %s", fnamebuf);
+						msg(MSG_ERROR, "could not open RAWDIR file %s", fnamebuf);
 					else if(writev(f, exporter->data_sendbuffer->entries, exporter->data_sendbuffer->committed)<0)
-					    msg(MSG_ERROR, "could not write to RAWDIR file %s", fnamebuf);
+						msg(MSG_ERROR, "could not write to RAWDIR file %s", fnamebuf);
 					close(f);
 					break;
 #endif
 				case DATAFILE:
 					if(col->bytes_written>0 && (col->bytes_written +
-						ntohs(exporter->data_sendbuffer->packet_header.length)
-						> (uint64_t)(col->maxfilesize) * 1024))
-						    ipfix_new_file(col);
+												ntohs(exporter->data_sendbuffer->packet_header.length)
+												> (uint64_t)(col->maxfilesize) * 1024))
+						ipfix_new_file(col);
 
 					if (col->fh < 0) {
 						msg(MSG_ERROR, "invalid file handle for DATAFILE file (==0!)");
@@ -2557,7 +2572,7 @@ static int ipfix_send_data(ipfix_exporter* exporter)
 						break;
 					}
 					if ((bytes_sent = writev(col->fh, exporter->data_sendbuffer->entries,
-							exporter->data_sendbuffer->committed)) < 0) {
+											 exporter->data_sendbuffer->committed)) < 0) {
 						msg(MSG_ERROR, "could not write to DATAFILE file");
 						break;
 					}
@@ -2565,25 +2580,25 @@ static int ipfix_send_data(ipfix_exporter* exporter)
 					col->bytes_written += ntohs(exporter->data_sendbuffer->packet_header.length);
 
 					msg(MSG_DEBUG, "packet_header.length: %d \t bytes_written: %d \t Total: %llu",
-					 ntohs(exporter->data_sendbuffer->packet_header.length), bytes_sent,
-					 	col->bytes_written);
+						ntohs(exporter->data_sendbuffer->packet_header.length), bytes_sent,
+						col->bytes_written);
 					break;
 
 				default:
 					msg(MSG_FATAL, "Transport Protocol not supported");
 					break; /* Should not occur since we check the transport
-						      protocol in valid_transport_protocol()*/
-                        	}
-                        }
-                } // end exporter loop
+			protocol in valid_transport_protocol()*/
+				}
+			}
+		} // end exporter loop
 		// increment sequence number
 		exporter->sequence_number += exporter->sn_increment;
 		exporter->sn_increment = 0;
-        }  // end if
+	}  // end if
 
-        // reset the sendbuffer
-        ipfix_reset_sendbuffer(exporter->data_sendbuffer);
-        return 0;
+	// reset the sendbuffer
+	ipfix_reset_sendbuffer(exporter->data_sendbuffer);
+	return 0;
 }
 
 
@@ -3575,6 +3590,54 @@ static void
 
 #endif
 
+#ifdef SUPPORT_COMPRESSION
+int ipfix_init_compression(ipfix_exporter *exporter,
+						   const char *module_name,
+						   const char *module_parameters) {
+	if (exporter->compression_handle) {
+		dlclose(exporter->compression_handle);
+
+		exporter->compression_handle = NULL;
+		exporter->compression_function = NULL;
+	}
+
+	char filename[FILENAME_MAX];
+	snprintf(filename, FILENAME_MAX, "lib%s.so",
+			 module_name);
+	filename[FILENAME_MAX - 1] = 0;
+
+	exporter->compression_handle = dlopen(filename, RTLD_LAZY);
+	if (!exporter->compression_handle) {
+		msg(MSG_ERROR, "Failed to open compression module: %s", dlerror());
+		return -1;
+	}
+
+	void *init_func = dlsym(exporter->compression_handle,
+							"ipfix_init_compression_module");
+	if (init_func) {
+		((void (*) (const char *)) init_func)(module_parameters);
+	}
+
+	exporter->compression_function = dlsym(exporter->compression_handle,
+										   "ipfix_compress");
+	if (!exporter->compression_function) {
+		dlclose(exporter->compression_handle);
+		exporter->compression_handle = NULL;
+
+		msg(MSG_ERROR, ("Invalid compression library: %s", dlerror()));
+		return -1;
+	}
+
+	return 0;
+}
+
+static int ipfix_compress_packet(ipfix_exporter *exporter) {
+	if (!exporter->compression_function)
+		return 0;
+
+	return exporter->compression_function(exporter);
+}
+#endif
 
 #ifdef __cplusplus
 }
