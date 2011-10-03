@@ -29,3 +29,8 @@ ADD_LIBRARY(deflate SHARED
 	compression/deflate.c
 )
 TARGET_LINK_LIBRARIES(deflate z)
+
+ADD_LIBRARY(bzip2 SHARED
+	compression/bzip2.c
+)
+TARGET_LINK_LIBRARIES(bzip2 bz2)
