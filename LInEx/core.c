@@ -150,7 +150,7 @@ int main(int argc, char **argv)
 	if (ret != 0) {
 		THROWEXCEPTION("ipfix_init_exporter failed!\n");
 	}
-	if (strlen(conf->compression_method) > 0) {
+	if (conf->compression_method && strlen(conf->compression_method) > 0) {
 		ret = ipfix_init_compression(send_exporter,
 									 conf->compression_method,
 									 conf->compression_method_params);
