@@ -17,6 +17,7 @@ struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
 		// Create new entry
 		struct hello_set *hs = (struct hello_set *) malloc(sizeof(struct hello_set));
 		hs->first = hs->last = NULL;
+		hs->protocol = IPv4; // TODO - Make address agnostic
 
 		node_entry->hello_set = hs;
 	}
