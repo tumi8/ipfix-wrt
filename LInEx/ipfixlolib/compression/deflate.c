@@ -4,19 +4,19 @@
 #include <zlib.h>
 #include <assert.h>
 
-int bzip2_compression_level = 9;
+int deflate_compression_level = 9;
 
 void ipfix_init_compression_module(const char *params) {
 	char *endptr = NULL;
-	bzip2_compression_level = strtol(params, &endptr, 10);
+	deflate_compression_level = strtol(params, &endptr, 10);
 
-	if (bzip2_compression_level < 0 || bzip2_compression_level > 9 ||
+	if (deflate_compression_level < 0 || deflate_compression_level > 9 ||
 			endptr == params) {
 		msg(MSG_ERROR, "Invalid compression level using default of 9.");
-		bzip2_compression_level = 9;
+		deflate_compression_level = 9;
 	}
 
-	DPRINTF("DEFLATE: Using compression level of %d", bzip2_compression_level);
+	DPRINTF("DEFLATE: Using compression level of %d", deflate_compression_level);
 }
 
 int ipfix_compress(ipfix_exporter *exporter) {
@@ -28,7 +28,7 @@ int ipfix_compress(ipfix_exporter *exporter) {
 	strm.zfree = Z_NULL;
 	strm.opaque = Z_NULL;
 
-	ret = deflateInit(&strm, bzip2_compression_level);
+	ret = deflateInit(&strm, deflate_compression_level);
 	if (ret != Z_OK) {
 		return -1;
 	}
