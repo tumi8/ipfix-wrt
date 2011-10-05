@@ -1,0 +1,11 @@
+# Instructions for building an OpenWRT package
+
+1. Obtain and extract the OpenWRT SDK
+2. Copy the LInEx folder into the package subfolder of the SDK.
+3. Create a symlink from your LInEx root directory (i.e. the directory in which the root CMakeLists.txt file resides) to <OpenWRT SDK>/package/LInEx/src 
+4. Add the external build dependencies to the package folder of the SDK (e.g. assuming you are in the root directory of the SDK):
+  svn export svn://svn.openwrt.org/openwrt/packages/utils/bzip2 package/bzip2
+  svn export svn://svn.openwrt.org/openwrt/packages/libs/sctp package/sctp
+  svn export svn://svn.openwrt.org/openwrt/branches/backfire/package/zlib package/zlib
+5. Build by running make
+6. The package files can then be found in the bin/<architecture>/packages subdirectory
