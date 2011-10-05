@@ -148,7 +148,7 @@ void init_config_regex(){
 	regcomp(&regex_rule,"^[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interval,"^[ \t]*INTERVAL[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_interface,"^[ \t]*INTERFACE[ \t]+(\\w+)[ \t\n]*$",REG_EXTENDED);
+	regcomp(&regex_interface,"^[ \t]*INTERFACE[ \t]+([A-Za-z0-9.-]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_compression,"^\\s*COMPRESSION\\s+(\\w+)(\\s+(.+))?\\s*",REG_EXTENDED);
 	regcomp(&regex_odid,"^[ \t]*ODID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlfile,"^[ \t]*XMLFILE[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
