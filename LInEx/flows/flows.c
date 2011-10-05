@@ -16,6 +16,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/user.h>
+#include <sys/mman.h>
 #include <net/if.h>
 #include <stdbool.h>
 #include <fcntl.h>
@@ -59,6 +61,15 @@ int start_capture_session(capture_session *session, uint16_t export_timeout) {
 
     session->export_timeout = export_timeout;
     session->flow_database = kh_init(1);
+
+	int i;
+	for (i = 0; i < MAXIMUM_INTERFACE_COUNT; i++) {
+#ifdef SUPPORT_PACKET_MMAP
+		session->interface_ring_buffer[i].ring_buffer = NULL;
+		session->interface_ring_buffer[i].current_frame_nr = 0;
+		session->interface_ring_buffer[i].fd = -1;
+#endif
+	}
 
     return 0;
 }
@@ -152,6 +163,10 @@ static struct sock_fprog build_filter(const struct sockaddr *hwaddr) {
   * Adds the given interface to the capture list.
   */
 int add_interface(capture_session *session, char *device_name, bool enable_promisc) {
+	if (session->interface_count + 1 > MAXIMUM_INTERFACE_COUNT) {
+		msg(MSG_ERROR, "This build supports at maximum %d interfaces per session.", session->interface_count);
+		return -1;
+	}
     int index, mtu;
     struct sockaddr hwaddr;
 
@@ -167,12 +182,40 @@ int add_interface(capture_session *session, char *device_name, bool enable_promi
         return -1;
     }
 
+#ifdef SUPPORT_PACKET_MMAP
+	struct tpacket_req req = {
+		PAGE_SIZE, // tp_block_size
+		PACKET_MMAP_BLOCK_NR, // tp_block_nr:
+		PACKET_MMAP_FRAME_SIZE, // tp_frame_size
+		PACKET_MMAP_FRAME_NR // tp_frame_nr
+	};
+
+	if (setsockopt(fd, SOL_PACKET, PACKET_RX_RING, (void *) &req, sizeof(req))) {
+		msg(MSG_ERROR, "Failed to setup PACKET_RX_RING: %s", strerror(errno));
+		close(fd);
+		return -1;
+	}
+
+	void *buffer = mmap(0, req.tp_block_size * req.tp_block_nr,
+						PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+	if (buffer == MAP_FAILED) {
+		msg(MSG_ERROR, "mmap failed to allocate buffer: %s", strerror(errno));
+		close(fd);
+		return -1;
+	}
+
+	struct ring_buffer *iface_ring_buffer =
+			&session->interface_ring_buffer[session->interface_count];
+	iface_ring_buffer->ring_buffer = buffer;
+	iface_ring_buffer->current_frame_nr = 0;
+	iface_ring_buffer->fd = fd;
+#else
 	if (fcntl(fd, F_SETFL, O_NONBLOCK)) {
 		msg(MSG_ERROR, "Failed to put raw socket in non-blocking mode.");
 		close(fd);
 		return -1;
 	}
-
+#endif
     union {
         struct sockaddr_ll ll;
         struct sockaddr addr;
@@ -201,6 +244,7 @@ int add_interface(capture_session *session, char *device_name, bool enable_promi
         }
     }
 
+#ifndef SUPPORT_PACKET_MMAP
     // Create or reallocate packet buffer
     if (session->packet_buffer == NULL || session->packet_buffer_size < mtu) {
         if (session->packet_buffer != NULL)
@@ -217,22 +261,9 @@ int add_interface(capture_session *session, char *device_name, bool enable_promi
 
         session->packet_buffer_size = mtu;
     }
+#endif
 
 	// Update pollfd list
-	if (session->interface_count == 0) {
-		session->pollfd = (struct pollfd *) malloc(sizeof(struct pollfd));
-	} else {
-		struct pollfd *resized = (struct pollfd *) realloc(session->pollfd, session->interface_count + 1);
-
-		if (resized == NULL) {
-			msg(MSG_ERROR, "Failed to allocate memory for new interface.");
-			close(fd);
-			return -1;
-		}
-
-		session->pollfd = resized;
-	}
-
 	session->interface_count++;
 
 	struct pollfd *entry = session->pollfd + (session->interface_count - 1);
@@ -260,16 +291,23 @@ void stop_capture_session(capture_session *session) {
 
         free(session->pollfd);
 
-        session->pollfd = NULL;
         session->interface_count = 0;
     }
 
+#ifdef SUPPORT_PACKET_MMAP
+	int i;
+	for (i = 0; i < MAXIMUM_INTERFACE_COUNT; i++) {
+		void *buffer = session->interface_ring_buffer[i].ring_buffer;
+		munmap(buffer, PACKET_MMAP_BLOCK_NR * PAGE_SIZE);
+	}
+#else
     if (session->packet_buffer != NULL) {
         free(session->packet_buffer);
 
         session->packet_buffer = NULL;
         session->packet_buffer_size = 0;
     }
+#endif
 
     khash_t(1) *flow_database = session->flow_database;
 
@@ -289,7 +327,6 @@ void stop_capture_session(capture_session *session) {
 
 
 static int parse_ethernet(capture_session *session, struct pktinfo *pkt) {
-	DPRINTF("Parsing ethernet...");
     if (pkt->data + sizeof(struct ether_header) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid ethernet packet.");
         return -1;
@@ -305,6 +342,7 @@ static int parse_ethernet(capture_session *session, struct pktinfo *pkt) {
     case ETHERTYPE_IPV6:
 		return parse_ipv6(session, pkt);
     default:
+		DPRINTF("Unsupported link layer protocol (%x).", ntohs(hdr->ether_type));
         return 0;
     }
 }
@@ -498,12 +536,38 @@ void statistics_callback(capture_session *session) {
 }
 
 void capture_callback(int fd, capture_session *session) {
-	union {
-		struct sockaddr_ll ll_addr;
-		struct sockaddr addr;
-	} addr;
+#ifdef SUPPORT_PACKET_MMAP
+	struct ring_buffer *interface_ring_buffer = NULL;
+	int i;
+
+	for (i = 0; i < MAXIMUM_INTERFACE_COUNT; i++) {
+		if (session->interface_ring_buffer[i].fd == fd) {
+			interface_ring_buffer = &session->interface_ring_buffer[i];
+			break;
+		}
+	}
+#endif
 
 	while (1) {
+#ifdef SUPPORT_PACKET_MMAP
+		uint8_t *buffer = (uint8_t *) interface_ring_buffer->ring_buffer;
+		buffer += interface_ring_buffer->current_frame_nr * PACKET_MMAP_FRAME_SIZE;
+
+		struct tpacket_hdr *hdr = (struct tpacket_hdr *) buffer;
+
+		if (hdr->tp_status == 0)
+			break;
+
+		buffer += hdr->tp_mac;
+		struct pktinfo pkt = { buffer, buffer + hdr->tp_len, buffer };
+
+		session->interface_ring_buffer[0].current_frame_nr =
+				(session->interface_ring_buffer[0].current_frame_nr + 1) % (PACKET_MMAP_FRAME_NR);
+#else
+		union {
+			struct sockaddr_ll ll_addr;
+			struct sockaddr addr;
+		} addr;
 		socklen_t addr_len = sizeof(struct sockaddr_ll);
 		size_t len = recvfrom(fd, session->packet_buffer, session->packet_buffer_size, 0, (struct sockaddr *) &addr.addr, &addr_len);
 
@@ -515,8 +579,11 @@ void capture_callback(int fd, capture_session *session) {
 			return;
 
 		struct pktinfo pkt = { session->packet_buffer, session->packet_buffer + len, session->packet_buffer };
-
+#endif
 		parse_ethernet(session, &pkt);
+#ifdef SUPPORT_PACKET_MMAP
+		hdr->tp_status = 0;
+#endif
 	}
 }
 

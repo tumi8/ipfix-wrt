@@ -10,8 +10,16 @@
 
 #include "khash.h"
 
-// The number of bytes to capture
-#define CAPTURE_LENGTH 65536
+#ifdef SUPPORT_PACKET_MMAP
+// TODO - Experiment which value fits best
+#define PACKET_MMAP_BLOCK_NR 128
+// TODO - Hardcoded simply choosing the MTU is not enough as additional restrictions apply
+#define PACKET_MMAP_FRAME_SIZE 512
+#define PACKET_MMAP_FRAME_NR (PACKET_MMAP_BLOCK_NR * (PAGE_SIZE / PACKET_MMAP_FRAME_SIZE))
+#endif
+
+// The maximum number of interfaces which can be added to one capture session
+#define MAXIMUM_INTERFACE_COUNT 1
 
 // The port the OLSR service is listening on
 #define OLSR_PORT 698
@@ -47,8 +55,9 @@ typedef struct capture_session_t {
     /**
       * File descriptors opened for interfaces.
       */
-    struct pollfd *pollfd;
+	struct pollfd pollfd[MAXIMUM_INTERFACE_COUNT];
 
+#ifndef SUPPORT_PACKET_MMAP
     /**
       * Packet buffer holding the currently captured packet.
       */
@@ -58,7 +67,7 @@ typedef struct capture_session_t {
       * Size of the packet buffer.
       */
     size_t packet_buffer_size;
-
+#endif
     /**
       * Hash table containing the currently active flows.
       */
@@ -72,6 +81,16 @@ typedef struct capture_session_t {
       * protocol semantics such as a TCP FIN or RST).
       */
     uint16_t export_timeout;
+#ifdef SUPPORT_PACKET_MMAP
+	/**
+	  * Information about the interface ring buffers.
+	  */
+	struct ring_buffer {
+		int fd;
+		void *ring_buffer;
+		uint16_t current_frame_nr;
+	} interface_ring_buffer[MAXIMUM_INTERFACE_COUNT];
+#endif
 } capture_session;
 
 typedef enum transport_protocol_t {
