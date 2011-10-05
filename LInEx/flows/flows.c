@@ -18,6 +18,7 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <stdbool.h>
+#include <fcntl.h>
 
 static int parse_ipv4(capture_session *session, struct pktinfo *pkt);
 static int parse_ipv6(capture_session *session, struct pktinfo *pkt);
@@ -166,6 +167,12 @@ int add_interface(capture_session *session, char *device_name, bool enable_promi
         return -1;
     }
 
+	if (fcntl(fd, F_SETFL, O_NONBLOCK)) {
+		msg(MSG_ERROR, "Failed to put raw socket in non-blocking mode.");
+		close(fd);
+		return -1;
+	}
+
     union {
         struct sockaddr_ll ll;
         struct sockaddr addr;
@@ -282,6 +289,7 @@ void stop_capture_session(capture_session *session) {
 
 
 static int parse_ethernet(capture_session *session, struct pktinfo *pkt) {
+	DPRINTF("Parsing ethernet...");
     if (pkt->data + sizeof(struct ether_header) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid ethernet packet.");
         return -1;
@@ -472,23 +480,44 @@ static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *fl
     return 0;
 }
 
+void statistics_callback(capture_session *session) {
+	size_t i;
+	struct tpacket_stats kstats;
+
+	for (i = 0; i < session->interface_count; i++) {
+		socklen_t kstats_len = sizeof(kstats);
+		if (getsockopt((session->pollfd + i)->fd, SOL_PACKET, PACKET_STATISTICS,
+					   &kstats, &kstats_len))
+			continue;
+
+		msg(MSG_ERROR, "Interface %d: Total pending: %d Lost: %d",
+			i,
+			kstats.tp_packets,
+			kstats.tp_drops);
+	}
+}
+
 void capture_callback(int fd, capture_session *session) {
 	union {
 		struct sockaddr_ll ll_addr;
 		struct sockaddr addr;
 	} addr;
 
-	socklen_t addr_len = sizeof(struct sockaddr_ll);
-	size_t len = recvfrom(fd, session->packet_buffer, session->packet_buffer_size, 0, (struct sockaddr *) &addr.addr, &addr_len);
+	while (1) {
+		socklen_t addr_len = sizeof(struct sockaddr_ll);
+		size_t len = recvfrom(fd, session->packet_buffer, session->packet_buffer_size, 0, (struct sockaddr *) &addr.addr, &addr_len);
 
-	if (len == -1) {
-		msg(MSG_ERROR, strerror(errno));
-		return;
+		if (len == -1) {
+			if (errno != EAGAIN && errno != EWOULDBLOCK)
+				msg(MSG_ERROR, strerror(errno));
+			return;
+		} else if (len == 0)
+			return;
+
+		struct pktinfo pkt = { session->packet_buffer, session->packet_buffer + len, session->packet_buffer };
+
+		parse_ethernet(session, &pkt);
 	}
-
-	struct pktinfo pkt = { session->packet_buffer, session->packet_buffer + len, session->packet_buffer };
-
-	parse_ethernet(session, &pkt);
 }
 
 void flow_export_callback(capture_session *session) {

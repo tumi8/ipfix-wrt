@@ -176,6 +176,7 @@ int main(int argc, char **argv)
 
 		while (node != NULL) {
 			char *interface = (char *) node->data;
+			DPRINTF("Adding interface %s to capture session.", interface);
 			if (add_interface(&session, interface, 1))
 				msg(MSG_ERROR, "Failed to add interface %s to capture session.", interface);
 
@@ -207,6 +208,9 @@ int main(int argc, char **argv)
 	// Add timer to export records
 	struct export_record_parameters record_params = { send_exporter, conf, xmlfh };
 	event_loop_add_timer(conf->interval * 1000, (void (*)(void *)) &export_records, &record_params);
+
+	// Add timer to print interface statistics
+	event_loop_add_timer(10000, (void (*) (void *)) &statistics_callback, &session);
 
 	return event_loop_run();
 }

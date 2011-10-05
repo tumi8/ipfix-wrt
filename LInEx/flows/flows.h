@@ -154,6 +154,7 @@ typedef struct flow_info_t {
 int start_capture_session(capture_session *session, uint16_t export_timeout);
 void stop_capture_session(capture_session *session);
 
+void statistics_callback(capture_session *session);
 void flow_export_callback(capture_session *session);
 int add_interface(capture_session *session, char *device_name, bool enable_promisc);
 
