@@ -8,16 +8,15 @@
   * if the dynamic memory allocation failed.
   */
 struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
-										   union olsr_ip_addr *addr) {
-	struct ip_addr_t originator_addr = { IPv4, *addr };
+										   struct ip_addr_t *addr) {
 	struct node_entry *node_entry = find_or_create_node_entry(node_set,
-															  &originator_addr);
+															  addr);
 
 	if (!node_entry->hello_set) {
 		// Create new entry
 		struct hello_set *hs = (struct hello_set *) malloc(sizeof(struct hello_set));
 		hs->first = hs->last = NULL;
-		hs->protocol = IPv4; // TODO - Make address agnostic
+		hs->protocol = addr->protocol;
 
 		node_entry->hello_set = hs;
 	}
@@ -33,7 +32,8 @@ struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
   * Returns a reference to the topology set entry (which may be newly created) or NULL
   * if the dynamic memory allocation failed.
   */
-struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs, union olsr_ip_addr *addr) {
+struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs,
+													   union olsr_ip_addr *addr) {
 	struct hello_set_entry *hs_entry = hs->first;
 
 	while (hs_entry != NULL) {

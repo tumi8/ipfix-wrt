@@ -24,7 +24,7 @@ struct hello_set {
 };
 
 struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
-										   union olsr_ip_addr *addr);
+										   struct ip_addr_t *addr);
 struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs,
 													   union olsr_ip_addr *addr);
 

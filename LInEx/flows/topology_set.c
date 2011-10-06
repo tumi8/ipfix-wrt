@@ -8,15 +8,15 @@
   * if the dynamic memory allocation failed.
   */
 struct topology_set *find_or_create_topology_set(node_set_hash *node_set,
-												 union olsr_ip_addr *addr) {
-	struct ip_addr_t originator_addr = { IPv4, *addr };
+												 struct ip_addr_t *addr) {
 	struct node_entry *node = find_or_create_node_entry(node_set,
-														&originator_addr);
+														&addr);
 
 	if (!node->topology_set) {
 		struct topology_set *ts =
 				(struct topology_set *) malloc(sizeof(struct topology_set));
 		ts->first = ts->last = NULL;
+		ts->protocol = addr->protocol;
 
 		node->topology_set = ts;
 	}

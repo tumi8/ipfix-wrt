@@ -18,6 +18,8 @@ uint32_t ip_addr_eq(struct ip_addr_t a, struct ip_addr_t b) {
 		return memcmp(&a.addr.v6, &b.addr.v6, sizeof(a.addr.v6)) == 0;
 #endif
 	}
+
+	return -1;
 }
 
 inline static uint32_t ip_addr_hash_code4(struct ip_addr_t addr) {

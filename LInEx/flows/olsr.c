@@ -212,9 +212,9 @@ static int olsr_handle_tc_message(const u_char **data,
     pkt_get_u16(data, &message->ansn); // ANSN
     pkt_ignore_u16(data); // Reserved
 
+	struct ip_addr_t addr = { protocol, message->comm.orig };
 	struct topology_set *ts = find_or_create_topology_set(node_set,
-														  &message->comm.orig);
-	ts->protocol = protocol;
+														  &addr);
 
     if (ts == NULL) {
         msg(MSG_ERROR, "Failed to allocate memory for topology set.");
@@ -278,10 +278,10 @@ static int olsr_handle_hello_message(const u_char **data,
 
 	time_t now = time(NULL);
 
+	struct ip_addr_t addr = { protocol, message->comm.orig };
 	struct hello_set *hs = find_or_create_hello_set(node_set,
-													&message->comm.orig);
+													&addr);
 
-	hs->protocol = protocol;
 	if (hs == NULL) {
 		msg(MSG_ERROR, "Failed to allocate memory for hello set.");
 

@@ -27,7 +27,7 @@ struct topology_set_entry
 										   union olsr_ip_addr *addr);
 
 struct topology_set *find_or_create_topology_set(node_set_hash *node_set,
-												 union olsr_ip_addr *addr);
+												 struct ip_addr_t *addr);
 
 void expire_topology_set_entries(struct topology_set *ts, time_t now);
 #endif
