@@ -63,7 +63,8 @@ static struct sock_filter ip_filter[] = {
 
 int start_capture_session(capture_session *session, uint16_t export_timeout) {
     session->export_timeout = export_timeout;
-    session->flow_database = kh_init(1);
+	session->ipv4_flow_database = kh_init(1);
+	session->ipv6_flow_database = kh_init(1);
 
 	session->interface_count = 0;
     return 0;
@@ -140,6 +141,23 @@ int add_interface(capture_session *session, char *device_name, bool enable_promi
     return 0;
 }
 
+static void free_flow_database(khash_t(1) *flow_database) {
+	if (flow_database == NULL)
+		return;
+
+	khiter_t k;
+	for (k = kh_begin(flow_database); k != kh_end(flow_database); ++k) {
+		if (!kh_exist(flow_database, k))
+			continue;
+		flow_key *key = kh_key(flow_database, k);
+		free(kh_value(flow_database, k));
+
+		kh_del(1, flow_database, k);
+		free(key);
+
+	}
+}
+
 /**
   * Stops the given capture session. It is not possible to use this session from the
   * capture call afterwards.
@@ -151,20 +169,11 @@ void stop_capture_session(capture_session *session) {
 		stop_capture(session->interfaces[i]);
 	}
 
-    khash_t(1) *flow_database = session->flow_database;
+	free_flow_database(session->ipv4_flow_database);
+	session->ipv4_flow_database = NULL;
 
-    if (flow_database != NULL) {
-        khiter_t k;
-        for (k = kh_begin(flow_database); k != kh_end(flow_database); ++k) {
-            if (!kh_exist(flow_database, k))
-                continue;
-            flow_key *key = kh_key(flow_database, k);
-            kh_del(1, flow_database, k);
-            free(key);
-        }
-    }
-
-    session->flow_database = NULL;
+	free_flow_database(session->ipv6_flow_database);
+	session->ipv6_flow_database = NULL;
 }
 
 
@@ -228,19 +237,18 @@ static int parse_ipv4(capture_session *session, struct pktinfo *pkt) {
         return -1;
     }
 
-    ipv4_flow_key *key = (ipv4_flow_key *) calloc(1, sizeof(ipv4_flow_key));
+	flow_key key;
 
-    if (key == NULL) {
-        msg(MSG_ERROR, "Failed to allocate memory for IPv4 flow key.");
-        return -1;
-    }
+	key.protocol = IPv4;
+	key.src_addr.v4.s_addr = hdr->saddr;
+	key.dst_addr.v4.s_addr = hdr->daddr;
 
     switch (hdr->protocol) {
     case SOL_UDP:
-        return parse_udp(session, pkt, (flow_key *) key);
+		return parse_udp(session, pkt, &key);
         break;
     case SOL_TCP:
-        return parse_tcp(session, pkt, (flow_key *) key);
+		return parse_tcp(session, pkt, &key);
     default:
         return 0;
     }
@@ -272,31 +280,40 @@ static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *fl
     pkt->data += sizeof(struct udphdr);
 
     flow_info *info = NULL;
-    khiter_t k;
-    k = kh_get(1, session->flow_database, flow);
+	khash_t(1) *flow_database = NULL;
+	khiter_t k;
 
-    if (k == kh_end(session->flow_database)) {
+	switch (flow->protocol) {
+	case IPv4:
+		flow_database = session->ipv4_flow_database;
+		break;
+	case IPv6:
+		flow_database = session->ipv6_flow_database;
+		break;
+	}
+
+	k = kh_get(1, flow_database, flow);
+
+	if (k == kh_end(flow_database)) {
         int ret;
 
-        info = (flow_info *) calloc(1, sizeof(flow_info));
-
+		info = (flow_info *) calloc(1, sizeof(flow_info));
         if (info == NULL) {
             msg(MSG_ERROR, "Failed to allocate memory for flow info structure.");
             return -1;
         }
 
+		// Create a copy of the key on the heap on the first insertion
+		flow_key *old_flow = flow;
+		flow = (flow_key *) malloc (sizeof(flow_key));
+		memcpy(flow, old_flow, sizeof(flow_key));
+
         info->first_packet_timestamp = time(NULL);
 
-        k = kh_put(1, session->flow_database, flow, &ret);
-        kh_value(session->flow_database, k) = info;
-
-
+		k = kh_put(1, flow_database, flow, &ret);
+		kh_value(flow_database, k) = info;
     } else {
-        info = (flow_info *) kh_value(session->flow_database, k);
-
-        // Cleanup flow key - leaving it intact is only needed when inserting
-        // into the database the first time.
-        free(flow);
+		info = (flow_info *) kh_value(flow_database, k);
     }
 
     info->last_packet_timestamp = time(NULL);
@@ -318,15 +335,25 @@ static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *fl
     flow->dst_port = hdr->dest;
 
     flow_info *info = NULL;
+	khash_t(1) *flow_database = NULL;
     khiter_t k;
-    k = kh_get(1, session->flow_database, flow);
 
-    if (k == kh_end(session->flow_database)) {
+	switch (flow->protocol) {
+	case IPv4:
+		flow_database = session->ipv4_flow_database;
+		break;
+	case IPv6:
+		flow_database = session->ipv6_flow_database;
+		break;
+	}
+
+	k = kh_get(1, flow_database, flow);
+
+	if (k == kh_end(flow_database)) {
         int ret;
 
         if (!(hdr->syn == 1 && hdr->ack == 0)) {
             // This is not a new connection - ignore it
-            free(flow);
             return -1;
         }
 
@@ -339,16 +366,17 @@ static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *fl
 
         info->first_packet_timestamp = time(NULL);
 
-        k = kh_put(1, session->flow_database, flow, &ret);
-        kh_value(session->flow_database, k) = info;
+		// Create a copy of the key on the heap on the first insertion
+		flow_key *old_flow = flow;
+		flow = (flow_key *) malloc (sizeof(flow_key));
+		memcpy(flow, old_flow, sizeof(flow_key));
+
+		k = kh_put(1, flow_database, flow, &ret);
+		kh_value(flow_database, k) = info;
 
 
     } else {
-        info = (flow_info *) kh_value(session->flow_database, k);
-
-        // Cleanup flow key - leaving it intact is only needed when inserting
-        // into the database the first time.
-        free(flow);
+		info = (flow_info *) kh_value(flow_database, k);
     }
 
     info->last_packet_timestamp = time(NULL);
@@ -388,40 +416,16 @@ void capture_callback(int fd, struct flow_capture_callback_param *param) {
 
 }
 
-void flow_export_callback(capture_session *session) {
-	// Export pending flows
-	time_t now = time(NULL);
-
-	khiter_t k;
-	for (k = kh_begin(session->flow_database); k != kh_end(session->flow_database); ++k) {
-		if (!kh_exist(session->flow_database, k))
-			continue;
-
-		flow_key *key = kh_key(session->flow_database, k);
-		flow_info *info = kh_value(session->flow_database, k);
-
-		if (now - info->last_packet_timestamp < session->export_timeout)
-			continue;
-
-		kh_del(1, session->flow_database, k);
-
-		msg(MSG_INFO, "Going to export flow: %p\n", key);
-
-		free(key);
-		free(info);
-	}
-}
-
-static uint32_t flow_key_hash_code_ipv4(ipv4_flow_key *key, uint32_t hashcode) {
+static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
     uint32_t addr1;
     uint32_t addr2;
 
-    if (key->src_addr < key->dst_addr) {
-        addr1 = key->src_addr;
-        addr2 = key->dst_addr;
+	if (key->src_addr.v4.s_addr < key->dst_addr.v4.s_addr) {
+		addr1 = key->src_addr.v4.s_addr;
+		addr2 = key->dst_addr.v4.s_addr;
     } else {
-        addr1 = key->dst_addr;
-        addr2 = key->src_addr;
+		addr1 = key->dst_addr.v4.s_addr;
+		addr2 = key->src_addr.v4.s_addr;
     }
 
     hashcode = hashcode * 23 + addr1;
@@ -430,16 +434,16 @@ static uint32_t flow_key_hash_code_ipv4(ipv4_flow_key *key, uint32_t hashcode) {
     return hashcode;
 }
 
-static uint32_t flow_key_hash_code_ipv6(ipv6_flow_key *key, uint32_t hashcode) {
+static uint32_t flow_key_hash_code_ipv6(flow_key *key, uint32_t hashcode) {
     uint8_t *addr1;
     uint8_t *addr2;
 
     if (memcmp(&key->src_addr, &key->dst_addr, sizeof(key->src_addr)) <= 0) {
-        addr1 = (uint8_t *) key->src_addr.s6_addr;
-        addr2 = (uint8_t *) key->dst_addr.s6_addr;
+		addr1 = (uint8_t *) key->src_addr.v6.s6_addr;
+		addr2 = (uint8_t *) key->dst_addr.v6.s6_addr;
     } else {
-        addr1 = (uint8_t *) key->dst_addr.s6_addr;
-        addr2 = (uint8_t *) key->src_addr.s6_addr;
+		addr1 = (uint8_t *) key->dst_addr.v6.s6_addr;
+		addr2 = (uint8_t *) key->src_addr.v6.s6_addr;
     }
     int i;
 
@@ -470,37 +474,37 @@ uint32_t flow_key_hash_code(struct flow_key_t *key) {
 
     switch (key->protocol) {
     case IPv4:
-        return flow_key_hash_code_ipv4((ipv4_flow_key *) key, hashcode);
+		return flow_key_hash_code_ipv4(key, hashcode);
     case IPv6:
-        return flow_key_hash_code_ipv6((ipv6_flow_key *) key, hashcode);
+		return flow_key_hash_code_ipv6(key, hashcode);
     default:
         msg(MSG_ERROR, "Hashcode was called for unsupported flow key type.");
         return hashcode;
     }
 }
 
-static int flow_key_equals_ipv4(const ipv4_flow_key *a, const ipv4_flow_key *b) {
-    return (a->src_addr == b->src_addr &&
-            a->dst_addr == b->dst_addr &&
-            a->key.src_port == b->key.src_port &&
-            a->key.dst_port == b->key.dst_port)
+static int flow_key_equals_ipv4(const flow_key *a, const flow_key *b) {
+	return (a->src_addr.v4.s_addr == b->src_addr.v4.s_addr &&
+			a->dst_addr.v4.s_addr == b->dst_addr.v4.s_addr &&
+			a->src_port == b->src_port &&
+			a->dst_port == b->dst_port)
             ||
-            (a->src_addr == b->dst_addr &&
-             a->dst_addr == b->src_addr &&
-             a->key.src_port == b->key.dst_port &&
-             a->key.dst_port == b->key.src_port);
+			(a->src_addr.v4.s_addr == b->dst_addr.v4.s_addr &&
+			 a->dst_addr.v4.s_addr == b->src_addr.v4.s_addr &&
+			 a->src_port == b->dst_port &&
+			 a->dst_port == b->src_port);
 }
 
-static int flow_key_equals_ipv6(const ipv6_flow_key *a, const ipv6_flow_key *b) {
-    return (memcmp(&a->src_addr, &b->src_addr, sizeof(a->src_addr)) == 0 &&
-            memcmp(&a->dst_addr, &b->dst_addr, sizeof(a->dst_addr)) == 0 &&
-            a->key.src_port == b->key.src_port &&
-            a->key.dst_port == b->key.dst_port)
+static int flow_key_equals_ipv6(const flow_key *a, const flow_key *b) {
+	return (memcmp(&a->src_addr.v6, &b->src_addr.v6, sizeof(a->src_addr.v6)) == 0 &&
+			memcmp(&a->dst_addr.v6, &b->dst_addr.v6, sizeof(a->dst_addr.v6)) == 0 &&
+			a->src_port == b->src_port &&
+			a->dst_port == b->dst_port)
             ||
-            (memcmp(&a->src_addr, &b->dst_addr, sizeof(a->src_addr)) == 0 &&
-             memcmp(&a->dst_addr, &b->src_addr, sizeof(a->dst_addr)) == 0 &&
-             a->key.src_port == b->key.dst_port &&
-             a->key.dst_port == b->key.src_port);
+			(memcmp(&a->src_addr.v6, &b->dst_addr.v6, sizeof(a->src_addr.v6)) == 0 &&
+			 memcmp(&a->dst_addr.v6, &b->src_addr.v6, sizeof(a->dst_addr.v6)) == 0 &&
+			 a->src_port == b->dst_port &&
+			 a->dst_port == b->src_port);
 }
 
 
@@ -512,9 +516,9 @@ int flow_key_equals(struct flow_key_t *a, struct flow_key_t *b) {
 
     switch (a->protocol) {
     case IPv4:
-        return flow_key_equals_ipv4((ipv4_flow_key *) a, (ipv4_flow_key *) b);
+		return flow_key_equals_ipv4(a, b);
     case IPv6:
-        return flow_key_equals_ipv6((ipv6_flow_key *) a, (ipv6_flow_key *) b);
+		return flow_key_equals_ipv6(a, b);
     default:
         msg(MSG_ERROR, "Equals was called for unsupported flow key type.");
         return 0;

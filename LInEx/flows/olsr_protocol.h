@@ -9,8 +9,10 @@
 #include <stdint.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <stdlib.h>
+#include <string.h>
+#include <byteswap.h>
 
-#include "flows.h"
 #include "../ipfixlolib/msg.h"
 #include "mantissa.h"
 
@@ -40,6 +42,16 @@ enum olsr_message_type {
     HELLO_LQ_MESSAGE=201,
     TC_LQ_MESSAGE=202
 };
+
+typedef enum transport_protocol_t {
+	TRANSPORT_TCP,
+	TRANSPORT_UDP
+} transport_protocol;
+
+typedef enum network_protocol_t {
+	IPv4,
+	IPv6
+} network_protocol;
 
 union olsr_ip_addr {
     struct in_addr v4;
@@ -223,6 +235,15 @@ pkt_put_u32(uint8_t ** p, uint32_t var)
 {
     **((uint32_t **)p) = htonl(var);
     *p += sizeof(uint32_t);
+}
+static inline void
+pkt_put_u64(uint8_t ** p, uint64_t var)
+{
+#if BYTE_ORDER == LITTLE_ENDIAN
+	var = bswap_64(var);
+#endif
+	**((uint64_t **)p) = var;
+	*p += sizeof(uint64_t);
 }
 static inline void
 pkt_put_s8(uint8_t ** p, int8_t var)

@@ -2,6 +2,7 @@
 #include "topology_set.h"
 #include "hello_set.h"
 #include "../ipfixlolib/msg.h"
+#include "../ipfixlolib/ipfix.h"
 
 #define SUBTEMPLATE_MULTILIST_HDR_LEN (sizeof(uint16_t) + sizeof(uint16_t))
 #define SUBTEMPLATE_LIST_HDR_LEN (sizeof(uint16_t) + sizeof(uint8_t))
@@ -95,7 +96,24 @@ struct olsr_template_info templates[] = {
 		{ 0 }
 	}
 },
+{ FlowTemplateIPv4,
+	(struct olsr_template_field []) {
+		{IPFIX_TYPEID_sourceIPv4Address, 0, sizeof(uint32_t)},
+		{IPFIX_TYPEID_destinationIPv4Address, 0, sizeof(uint32_t) },
+		{IPFIX_TYPEID_protocolIdentifier, 0, sizeof(uint8_t) },
+		{IPFIX_TYPEID_sourceTransportPort, 0, sizeof(uint16_t) },
+		{IPFIX_TYPEID_destinationTransportPort, 0, sizeof(uint16_t) },
+		{IPFIX_TYPEID_octetTotalCount, 0, sizeof(uint64_t) },
+		{IPFIX_TYPEID_flowStartSeconds, 0, sizeof(uint32_t) },
+		{IPFIX_TYPEID_flowEndSeconds, 0, sizeof(uint32_t) },
+		{ 0 }
+	}
+},
 };
+
+#define FLOW_TEMPLATE_LEN (sizeof(uint8_t) + 2 * sizeof(uint16_t) + sizeof(uint64_t) + 2 * sizeof(uint32_t))
+#define FLOW_TEMPLATE_IPV4_LEN (FLOW_TEMPLATE_LEN + 2 * sizeof(uint32_t))
+#define FLOW_TEMPLATE_IPV6_LEN (FLOW_TEMPLATE_LEN + 2 * sizeof(struct in6_addr))
 
 static size_t target_host_len(const struct topology_set *ts);
 static void target_host_encode(const struct topology_set *ts,
@@ -140,6 +158,12 @@ static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
 										const struct hello_set *neighbor_set,
 										struct buffer_info *buffer,
 										struct export_status *status);
+
+static void export_flow_database(khash_t(1) *flow_database,
+								 ipfix_exporter *exporter,
+								 capture_session *session,
+								 uint16_t template_id,
+								 size_t template_len);
 
 inline uint8_t *pkt_put_variable_length(uint8_t **buffer) {
 	pkt_put_u8(buffer, 0xff);
@@ -506,5 +530,114 @@ void export_full(struct export_parameters *params) {
 	}
 }
 
+void export_flows(struct export_flow_parameter *param) {
+	capture_session *session = param->session;
+	ipfix_exporter *exporter = param->exporter;
 
+	export_flow_database(session->ipv4_flow_database,
+						 exporter,
+						 session,
+						 FlowTemplateIPv4,
+						 FLOW_TEMPLATE_IPV4_LEN);
 
+	export_flow_database(session->ipv6_flow_database,
+						 exporter,
+						 session,
+						 FlowTemplateIPv6,
+						 FLOW_TEMPLATE_IPV6_LEN);
+}
+
+static void export_flow_database(khash_t(1) *flow_database,
+								 ipfix_exporter *exporter,
+								 capture_session *session,
+								 uint16_t template_id,
+								 size_t template_len) {
+	time_t now = time(NULL);
+	uint8_t *buffer = NULL;
+	uint8_t *buffer_end = NULL;
+	khiter_t k;
+
+	for (k = kh_begin(flow_database); k != kh_end(flow_database); ++k) {
+		if (!kh_exist(flow_database, k))
+			continue;
+
+		flow_key *key = kh_key(flow_database, k);
+		flow_info *info = kh_value(flow_database, k);
+
+		if (now - info->last_packet_timestamp < session->export_timeout)
+			continue;
+
+		kh_del(1, flow_database, k);
+
+		if (buffer == NULL || (buffer + template_len) > buffer_end) {
+			if (buffer != NULL) {
+				if (ipfix_put_data_field(exporter,
+										 message_buffer,
+										 buffer - message_buffer)) {
+					msg(MSG_ERROR, "Failed to add data record.");
+					return;
+				}
+
+				if (ipfix_end_data_set(exporter, 1)) {
+					msg(MSG_ERROR, "Failed to end data set.");
+					return;
+				}
+
+				if (ipfix_send(exporter)) {
+					msg(MSG_ERROR, "Failed to send IPFIX message.");
+					return;
+				}
+			}
+
+			if (ipfix_start_data_set(exporter, htons(template_id))) {
+				msg(MSG_ERROR, "Failed to start flow data set.");
+				return;
+			}
+
+			buffer = message_buffer;
+			buffer_end = message_buffer + ipfix_get_remaining_space(exporter);
+		}
+
+		pkt_put_ipaddress(&buffer, &key->src_addr, key->protocol);
+		pkt_put_ipaddress(&buffer, &key->dst_addr, key->protocol);
+		switch (key->t_protocol) {
+		case TRANSPORT_UDP:
+			pkt_put_u8(&buffer, 17);
+			break;
+		case TRANSPORT_TCP:
+			pkt_put_u8(&buffer, 6);
+			break;
+		default:
+			pkt_put_u8(&buffer, 255);
+			break;
+		}
+
+		pkt_put_u16(&buffer, key->src_port);
+		pkt_put_u16(&buffer, key->dst_port);
+		pkt_put_u64(&buffer, info->total_bytes);
+		pkt_put_u32(&buffer, info->first_packet_timestamp);
+		pkt_put_u32(&buffer, info->last_packet_timestamp);
+
+		free(key);
+		free(info);
+	}
+
+	if (buffer != NULL && buffer != message_buffer) {
+		if (ipfix_put_data_field(exporter,
+								 message_buffer,
+								 buffer - message_buffer)) {
+			msg(MSG_ERROR, "Failed to add data record.");
+			return;
+		}
+
+		if (ipfix_end_data_set(exporter, 1)) {
+			msg(MSG_ERROR, "Failed to end data set.");
+			return;
+		}
+
+		if (ipfix_send(exporter)) {
+			msg(MSG_ERROR, "Failed to send IPFIX message.");
+			return;
+		}
+	}
+}

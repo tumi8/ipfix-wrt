@@ -10,6 +10,7 @@
 
 #include "khash.h"
 #include "capture.h"
+#include "olsr_protocol.h"
 
 // The maximum number of interfaces which can be added to one capture session
 #define MAXIMUM_INTERFACE_COUNT 1
@@ -39,9 +40,14 @@ struct pktinfo {
 
 typedef struct capture_session_t {
     /**
-      * Hash table containing the currently active flows.
+	  * Hash table containing the currently active IPv4 flows.
       */
-    khash_t(1) *flow_database;
+	khash_t(1) *ipv4_flow_database;
+
+	/**
+	  * Hash table containing the currently active IPv6 flows.
+	  */
+	khash_t(1) *ipv6_flow_database;
 
     /**
       * The timeout in seconds after which a flow is regarded as inactive and
@@ -52,66 +58,42 @@ typedef struct capture_session_t {
       */
     uint16_t export_timeout;
 
+	/**
+	  * Total number of interfaces added to this session.
+	  */
 	size_t interface_count;
+	/**
+	  * Capture information for each interface added to this session.
+	  */
 	struct capture_info *interfaces[MAXIMUM_INTERFACE_COUNT];
 } capture_session;
 
-typedef enum transport_protocol_t {
-    TRANSPORT_TCP,
-    TRANSPORT_UDP
-} transport_protocol;
-
-typedef enum network_protocol_t {
-    IPv4,
-    IPv6
-} network_protocol;
-
 typedef struct flow_key_t {
     /**
-   * Stores the network protocol of this flow.
-   */
+	  * Stores the network protocol of this flow.
+	  */
     network_protocol protocol;
     /**
-   * Stores the transport protocol of this flow.
-   */
+	  * Stores the transport protocol of this flow.
+	  */
     transport_protocol t_protocol;
     /**
-   * Source port of the flow.
-   */
+	  * Source port of the flow.
+	  */
     uint16_t src_port;
     /**
-   * Destination port of the flow.
-   */
+	  * Destination port of the flow.
+	  */
     uint16_t dst_port;
-
-    union {
-
-    };
+	/**
+	  * Source address of flow.
+	  */
+	union olsr_ip_addr src_addr;
+	/**
+	  * Destination address of flow.
+	  */
+	union olsr_ip_addr dst_addr;
 } flow_key;
-
-typedef struct ipv4_flow_key_t {
-    flow_key key;
-    /**
-   * Source IPv4 address of this flow.
-   */
-    uint32_t src_addr;
-    /**
-   * Destination IPv4 address of this flow.
-   */
-    uint32_t dst_addr;
-} ipv4_flow_key;
-
-typedef struct ipv6_flow_key_t {
-    flow_key key;
-    /**
-   * Source IPv6 address of this flow.
-   */
-    struct in6_addr src_addr;
-    /**
-   * Destination IPv6 address of this flow.
-   */
-    struct in6_addr dst_addr;
-} ipv6_flow_key;
 
 /**
   * Structure holding general information about the flow.
@@ -130,14 +112,13 @@ typedef struct flow_info_t {
     /**
    * The total number of bytes which have been transferred.
    */
-    uint32_t total_bytes;
+	uint64_t total_bytes;
 } flow_info;
 
 int start_capture_session(capture_session *session, uint16_t export_timeout);
 void stop_capture_session(capture_session *session);
 
 void statistics_callback(capture_session *session);
-void flow_export_callback(capture_session *session);
 int add_interface(capture_session *session, char *device_name, bool enable_promisc);
 
 #endif

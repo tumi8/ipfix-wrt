@@ -25,7 +25,9 @@ enum olsr_template_id {
 	TargetHostTemplateIPv4,
 	TargetHostTemplateIPv6,
 	NeighborHostTemplateIPv4,
-	NeighborHostTemplateIPv6
+	NeighborHostTemplateIPv6,
+	FlowTemplateIPv4,
+	FlowTemplateIPv6
 };
 
 struct olsr_template_field {
@@ -44,6 +46,12 @@ struct export_parameters {
 	node_set_hash *node_set;
 };
 
+struct export_flow_parameter {
+	ipfix_exporter *exporter;
+	capture_session *session;
+};
+
 int declare_templates(ipfix_exporter *exporter);
 void export_full(struct export_parameters *params);
+void export_flows(struct export_flow_parameter *param);
 #endif
