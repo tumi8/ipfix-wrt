@@ -183,7 +183,7 @@ extern "C" {
  * maximum size of a sendbuffer
  * TODO: This value is deliberately chosen, adapt it if you need it or make it dynamic.
  */
-#define IPFIX_MAX_SENDBUFSIZE (32 * 1024)
+#define IPFIX_MAX_SENDBUFSIZE (128)
 
 /*
  * maximum size of an IPFIX packet
