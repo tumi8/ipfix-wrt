@@ -2,26 +2,156 @@
 #include "topology_set.h"
 #include "hello_set.h"
 #include "olsr_protocol.h"
+#include "capture.h"
+#include "../event_loop.h"
 #include "../ipfixlolib/msg.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/ip6.h>
+#include <netinet/udp.h>
 #include <arpa/inet.h>
+#include <linux/filter.h>
+#include <net/ethernet.h>
+
+
+/**
+  * Compiled BPF filter: udp and dst port 698
+  */
+static struct sock_filter olsr_filter[] = {
+	{ 0x28, 0, 0, 0x0000000c },
+	{ 0x15, 0, 4, 0x000086dd },
+	{ 0x30, 0, 0, 0x00000014 },
+	{ 0x15, 0, 11, 0x00000011 },
+	{ 0x28, 0, 0, 0x00000038 },
+	{ 0x15, 8, 9, 0x000002ba },
+	{ 0x15, 0, 8, 0x00000800 },
+	{ 0x30, 0, 0, 0x00000017 },
+	{ 0x15, 0, 6, 0x00000011 },
+	{ 0x28, 0, 0, 0x00000014 },
+	{ 0x45, 4, 0, 0x00001fff },
+	{ 0xb1, 0, 0, 0x0000000e },
+	{ 0x48, 0, 0, 0x00000010 },
+	{ 0x15, 0, 1, 0x000002ba },
+	{ 0x6, 0, 0, 0x0000ffff },
+	{ 0x6, 0, 0, 0x00000000 },
+};
+
 
 node_set_hash *node_set = NULL;
 
-static int olsr_parse_packet_header(const u_char **data, const u_char *const end_data, struct olsr_packet *packet_hdr);
-static int olsr_parse_message(const u_char **data, const u_char *const end_data, const flow_key *const key, struct olsr_common *message);
-static int olsr_handle_hello_message(const u_char **data, const flow_key * const key, struct olsr_hello_message *message);
-static int olsr_handle_tc_message(const u_char **data, const flow_key * const key, struct olsr_tc_message *message);
+static int olsr_parse_packet_header(const u_char **data,
+									const u_char *const end_data,
+									struct olsr_packet *packet_hdr);
+static int olsr_parse_message(const u_char **data,
+							  const u_char *const end_data,
+							  struct olsr_common *message,
+							  network_protocol protocol);
+static int olsr_handle_hello_message(const u_char **data,
+									 struct olsr_hello_message *message,
+									 network_protocol protocol);
+static int olsr_handle_tc_message(const u_char **data,
+								  struct olsr_tc_message *message,
+								  network_protocol protocol);
+int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol);
+
+static int parse_packet_header(struct pktinfo *pkt);
+static int parse_packet_header_ipv4(struct pktinfo *pkt);
+static int parse_packet_header_ipv6(struct pktinfo *pkt);
+
+void olsr_callback(int fd, struct capture_info *info);
+
+struct capture_info *olsr_add_capture_interface(const char *interface) {
+	struct sock_fprog filter = {
+		sizeof(olsr_filter) / sizeof(struct sock_filter),
+		olsr_filter
+	};
+
+	struct capture_info *info = start_capture(interface, 0, &filter);
+	if (!info)
+		return NULL;
+
+	event_loop_add_fd(info->fd, (void (*) (int, void *)) &olsr_callback, info);
+
+	return info;
+}
+
+void olsr_callback(int fd, struct capture_info *info) {
+	size_t len;
+	size_t orig_len;
+	uint8_t *buffer;
+
+	while ((buffer = capture_packet(info, &len, &orig_len))) {
+		struct pktinfo pkt = { buffer, buffer + len, buffer, orig_len };
+
+		parse_packet_header(&pkt);
+
+		capture_packet_done(info);
+	}
+}
+
+static int parse_packet_header(struct pktinfo *pkt) {
+	const struct ether_header * const hdr = (const struct ether_header * const) pkt->data;
+
+	pkt->data += sizeof(struct ether_header);
+
+	switch (ntohs(hdr->ether_type)) {
+	case ETHERTYPE_IP:
+		return parse_packet_header_ipv4(pkt);
+	case ETHERTYPE_IPV6:
+		return parse_packet_header_ipv6(pkt);
+	default:
+		DPRINTF("Unsupported link layer protocol (%x).", ntohs(hdr->ether_type));
+		return -1;
+	}
+}
+
+static int parse_packet_header_ipv4(struct pktinfo *pkt) {
+	if (pkt->data + sizeof(struct iphdr) > pkt->end_data) {
+		msg(MSG_ERROR, "Packet too short to be a valid IPv4 packet (by %t bytes).", (pkt->data + sizeof(struct iphdr) - pkt->end_data));
+		return -1;
+	}
+
+	const struct iphdr * const hdr = (const struct iphdr * const) pkt->data;
+
+	// Determine start address of payload based on the IHL header.
+	pkt->data += hdr->ihl * 4;
+
+	if (pkt->data > pkt->end_data) {
+		msg(MSG_ERROR, "Packet payload points beyond capture end.");
+		return -1;
+	}
+
+	if (hdr->protocol != SOL_UDP) {
+		// OLSR uses UDP
+		return -1;
+	}
+
+	if (pkt->data + sizeof(struct udphdr) > pkt->end_data) {
+		msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
+		return -1;
+	}
+
+	pkt->data += sizeof(struct udphdr);
+
+	return olsr_parse_packet(pkt, IPv4);
+}
+
+static int parse_packet_header_ipv6(struct pktinfo *pkt) {
+	return -1;
+}
 
 /**
   * Attemps to parse an OLSR packet.
   *
   * Returns 0 if the packet could be parsed sucessfully or -1 if the packet was not a valid OLSR packet.
   */
-int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_key *const key) {
-    struct olsr_packet packet;
+int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol) {
+
+
+	struct olsr_packet packet;
+
     if (olsr_parse_packet_header(&pkt->data, pkt->end_data, &packet)) {
         return -1;
     }
@@ -30,7 +160,7 @@ int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_
 
     struct olsr_common message;
     while (pkt->data < pkt->end_data) {
-        if (olsr_parse_message(&pkt->data, pkt->end_data, key, &message)) {
+		if (olsr_parse_message(&pkt->data, pkt->end_data, &message, protocol)) {
             return -1;
         }
 
@@ -40,14 +170,14 @@ int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_
         case HELLO_MESSAGE:
         case HELLO_LQ_MESSAGE: {
             struct olsr_hello_message hello_message = { message };
-            if (olsr_handle_hello_message(&pkt->data, key, &hello_message))
+			if (olsr_handle_hello_message(&pkt->data, &hello_message, protocol))
                 return -1;
             break;
         }
         case TC_MESSAGE:
         case TC_LQ_MESSAGE: {
             struct olsr_tc_message tc_message = { message };
-            if (olsr_handle_tc_message(&pkt->data, key, &tc_message))
+			if (olsr_handle_tc_message(&pkt->data, &tc_message, protocol))
                 return -1;
             break;
         }
@@ -69,7 +199,9 @@ int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_
   *
   * Returns 0 on success, -1 otherwise.
   */
-static int olsr_handle_tc_message(const u_char **data, const flow_key *const key, struct olsr_tc_message *message) {
+static int olsr_handle_tc_message(const u_char **data,
+								  struct olsr_tc_message *message,
+								  network_protocol protocol) {
     if ((message->comm.type == TC_LQ_MESSAGE && *data + OLSR_TC_LQ_MESSAGE_HEADER_LEN > message->comm.end) ||
             (*data + OLSR_TC_MESSAGE_HEADER_LEN > message->comm.end)) {
         msg(MSG_ERROR, "Packet too short to be a valid OLSR TC packet.");
@@ -82,7 +214,7 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
 
 	struct topology_set *ts = find_or_create_topology_set(node_set,
 														  &message->comm.orig);
-	ts->protocol = key->protocol;
+	ts->protocol = protocol;
 
     if (ts == NULL) {
         msg(MSG_ERROR, "Failed to allocate memory for topology set.");
@@ -106,7 +238,7 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
     while (*data < message->comm.end) {
 		union olsr_ip_addr addr;
 
-		pkt_get_ip_address(data, &addr, key->protocol);
+		pkt_get_ip_address(data, &addr, protocol);
 
 		ts_entry = find_or_create_topology_set_entry(ts, &addr);
 		if (ts_entry == NULL) {
@@ -135,7 +267,9 @@ static int olsr_handle_tc_message(const u_char **data, const flow_key *const key
   * Attempts to parse an OLSR HELLO message.
   *
   */
-static int olsr_handle_hello_message(const u_char **data, const flow_key *const key, struct olsr_hello_message *message) {
+static int olsr_handle_hello_message(const u_char **data,
+									 struct olsr_hello_message *message,
+									 network_protocol protocol) {
     if (*data + OLSR_HELLO_MESSAGE_HEADER_LEN > message->comm.end) {
         msg(MSG_ERROR, "Packet too short to be a valid OLSR HELLO packet.");
 
@@ -147,6 +281,7 @@ static int olsr_handle_hello_message(const u_char **data, const flow_key *const 
 	struct hello_set *hs = find_or_create_hello_set(node_set,
 													&message->comm.orig);
 
+	hs->protocol = protocol;
 	if (hs == NULL) {
 		msg(MSG_ERROR, "Failed to allocate memory for hello set.");
 
@@ -159,7 +294,7 @@ static int olsr_handle_hello_message(const u_char **data, const flow_key *const 
 
 	hs->htime = now + message->htime;
 
-    uint32_t neighbor_entry_len = ip_addr_len(key->protocol);
+	uint32_t neighbor_entry_len = ip_addr_len(protocol);
     if (message->comm.type == HELLO_LQ_MESSAGE)
 		neighbor_entry_len += 4;
 
@@ -182,7 +317,7 @@ static int olsr_handle_hello_message(const u_char **data, const flow_key *const 
         while ((*data + neighbor_entry_len) <= hello_info_end) {
             union olsr_ip_addr addr;
 
-            pkt_get_ip_address(data, &addr, key->protocol);
+			pkt_get_ip_address(data, &addr, protocol);
 
 			struct hello_set_entry *hs_entry = find_or_create_hello_set_entry(hs, &addr);
 
@@ -233,8 +368,11 @@ static int olsr_parse_packet_header(const u_char **data, const u_char *const end
   *
   * Returns 0 on success or -1 on failure.
   */
-static int olsr_parse_message(const u_char **data, const u_char *const end_data, const flow_key *const key, struct olsr_common *message) {
-    if (*data + OLSR_MESSAGE_HEADER_LEN + ip_addr_len(key->protocol) >= end_data) {
+static int olsr_parse_message(const u_char **data,
+							  const u_char *const end_data,
+							  struct olsr_common *message,
+							  network_protocol protocol) {
+	if (*data + OLSR_MESSAGE_HEADER_LEN + ip_addr_len(protocol) >= end_data) {
         msg(MSG_ERROR, "Packet too short to contain OLSR message header.");
 
         return -1;
@@ -245,13 +383,13 @@ static int olsr_parse_message(const u_char **data, const u_char *const end_data,
     pkt_get_u8(data, &message->type);
     pkt_get_reltime(data, &message->vtime);
     pkt_get_u16(data, &message->size);
-    pkt_get_ip_address(data, &message->orig, key->protocol);
+	pkt_get_ip_address(data, &message->orig, protocol);
     pkt_get_u8(data, &message->ttl);
     pkt_get_u8(data, &message->hops);
     pkt_get_u16(data, &message->seqno);
 
     if (start + message->size > end_data) {
-        msg(MSG_ERROR, "Message end points beyond input buffer by %t bytes.", (start + message->size) - end_data);
+		msg(MSG_ERROR, "Message end points beyond input buffer by %d bytes.", (start + message->size) - end_data);
 
         return -1;
     }

@@ -38,10 +38,15 @@ ADD_EXECUTABLE(LInEx
 	flows/node_set.c
 	flows/export.c
 	flows/olsr_protocol.h
+	flows/capture.c
+	flows/iface.c
 )
 
 
 TARGET_LINK_LIBRARIES(LInEx
 	ipfixlolib
-	dl
 )
+
+IF(WITH_COMPRESSION)
+	TARGET_LINK_LIBRARIES(LInEx dl)
+ENDIF(WITH_COMPRESSION)

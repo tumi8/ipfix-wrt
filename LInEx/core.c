@@ -35,6 +35,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include "flows/flows.h"
+#include "flows/olsr.h"
 #include "flows/topology_set.h"
 #include "flows/hello_set.h"
 #include "flows/export.h"
@@ -150,6 +151,7 @@ int main(int argc, char **argv)
 	if (ret != 0) {
 		THROWEXCEPTION("ipfix_init_exporter failed!\n");
 	}
+#ifdef WITH_COMPRESSION
 	if (conf->compression_method && strlen(conf->compression_method) > 0) {
 		ret = ipfix_init_compression(send_exporter,
 									 conf->compression_method,
@@ -157,6 +159,7 @@ int main(int argc, char **argv)
 		if (ret)
 			THROWEXCEPTION("Failed to initialize compression module.");
 	}
+#endif
 
 	//Add collectors from config file
 	init_collectors(conf,send_exporter);
@@ -180,6 +183,8 @@ int main(int argc, char **argv)
 			if (add_interface(&session, interface, 1))
 				msg(MSG_ERROR, "Failed to add interface %s to capture session.", interface);
 
+			if (!olsr_add_capture_interface(interface))
+				msg(MSG_ERROR, "Failed to add OLSR capturing to interface %s.", interface);
 			node = node->next;
 		}
 	}

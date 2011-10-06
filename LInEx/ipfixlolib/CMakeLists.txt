@@ -25,19 +25,21 @@ ADD_LIBRARY(ipfixlolib
 	ipfix_names.c
 )
 
-ADD_LIBRARY(deflate SHARED
-	compression/deflate.c
-)
-TARGET_LINK_LIBRARIES(deflate z)
+IF(WITH_COMPRESSION)
+	ADD_LIBRARY(deflate SHARED
+		compression/deflate.c
+	)
+	TARGET_LINK_LIBRARIES(deflate z)
 
-ADD_LIBRARY(bzip2 SHARED
-	compression/bzip2.c
-)
-TARGET_LINK_LIBRARIES(bzip2 bz2)
+	ADD_LIBRARY(bzip2 SHARED
+		compression/bzip2.c
+	)
+	TARGET_LINK_LIBRARIES(bzip2 bz2)
 
-# Optimize QuickLZ for best compression ratio
-ADD_DEFINITIONS(-DQLZ_COMPRESSION_LEVEL=2 -DQLZ_STREAMING_BUFFER=65536)
-ADD_LIBRARY(quicklz SHARED
-	compression/quicklz.c
-	compression/ext/quicklz.c
-)
+	# Optimize QuickLZ for best compression ratio
+	ADD_DEFINITIONS(-DQLZ_COMPRESSION_LEVEL=2 -DQLZ_STREAMING_BUFFER=65536)
+	ADD_LIBRARY(quicklz SHARED
+		compression/quicklz.c
+		compression/ext/quicklz.c
+	)
+ENDIF(WITH_COMPRESSION)

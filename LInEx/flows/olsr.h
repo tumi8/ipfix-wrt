@@ -1,8 +1,8 @@
 #ifndef OLSR_H_
 #define OLSR_H_
 
-#include "flows.h"
+struct capture_info;
 
-int olsr_parse_packet(capture_session *session, struct pktinfo *pkt, const flow_key *const key);
+struct capture_info *olsr_add_capture_interface(const char *interface);
 
 #endif

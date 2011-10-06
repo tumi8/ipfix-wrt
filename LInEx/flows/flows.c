@@ -1,6 +1,7 @@
 #include "flows.h"
 #include "../ipfixlolib/msg.h"
-#include "olsr.h"
+#include "iface.h"
+
 #include "../event_loop.h"
 
 #include <arpa/inet.h>
@@ -27,7 +28,12 @@ static int parse_ipv6(capture_session *session, struct pktinfo *pkt);
 static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
 static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
 
-void capture_callback(int fd, capture_session *session);
+struct flow_capture_callback_param {
+	capture_session *session;
+	struct capture_info *info;
+};
+
+void capture_callback(int fd, struct flow_capture_callback_param *param);
 
 /**
   * Compiled BPF filter: tcpdump -dd "not ether src de:ad:be:ef:aa:aa and (ip or ip6)"
@@ -55,84 +61,15 @@ static struct sock_filter ip_filter[] = {
     { 0x6, 0, 0, 0x00000000 },
 };
 
-
 int start_capture_session(capture_session *session, uint16_t export_timeout) {
-    memset(session, 0, sizeof(capture_session));
-
     session->export_timeout = export_timeout;
     session->flow_database = kh_init(1);
 
-	int i;
-	for (i = 0; i < MAXIMUM_INTERFACE_COUNT; i++) {
-#ifdef SUPPORT_PACKET_MMAP
-		session->interface_ring_buffer[i].ring_buffer = NULL;
-		session->interface_ring_buffer[i].current_frame_nr = 0;
-		session->interface_ring_buffer[i].fd = -1;
-#endif
-	}
-
+	session->interface_count = 0;
     return 0;
 }
 
-static int setup_interface(char *device_name, bool enable_promisc, int *if_index, int *if_mtu, struct sockaddr *hwaddr) {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
 
-    if (fd == -1) {
-        msg(MSG_ERROR, "Failed to retrieve interface info for interface %s (%s).", device_name, strerror(errno));
-        return -1;
-    }
-
-    struct ifreq req;
-
-    strncpy(req.ifr_name, device_name, sizeof(req.ifr_name));
-    req.ifr_name[sizeof(req.ifr_name) - 1] = 0;
-
-    if (ioctl(fd, SIOCGIFINDEX, &req)) {
-        msg(MSG_ERROR, "Failed to retrieve interface index for interface %s (%s).", device_name, strerror(errno));
-        close(fd);
-        return -1;
-    }
-
-    *if_index = req.ifr_ifindex;
-
-    if (ioctl(fd, SIOCGIFMTU, &req)) {
-        msg(MSG_ERROR, "Failed to retrieve interface MTU for interface %s (%s).", device_name, strerror(errno));
-        close(fd);
-        return -1;
-    }
-
-    *if_mtu = req.ifr_mtu;
-
-    if (ioctl(fd, SIOCGIFHWADDR, &req)) {
-        msg(MSG_ERROR, "Failed to retrieve hardware adress for interface %s (%s).", device_name, strerror(errno));
-        close(fd);
-        return -1;
-    }
-
-    *hwaddr = req.ifr_hwaddr;
-
-    if (!enable_promisc) {
-        close(fd);
-        return 0;
-    }
-
-    if (ioctl(fd, SIOCGIFFLAGS, &req)) {
-        msg(MSG_ERROR, "Failed to retrieve interface flags for interface %s (%s).", device_name, strerror(errno));
-        close(fd);
-        return -1;
-    }
-
-    req.ifr_flags |= IFF_PROMISC;
-
-    if (ioctl(fd, SIOCSIFFLAGS, &req)) {
-        msg(MSG_ERROR, "Failed to enable promisicious mode for interface %s (%s).", device_name, strerror(errno));
-        close(fd);
-        return -1;
-    }
-
-    close(fd);
-    return 0;
-}
 
 static struct sock_fprog build_filter(const struct sockaddr *hwaddr) {
     struct sock_fprog prog = { 0, NULL };
@@ -163,151 +100,56 @@ static struct sock_fprog build_filter(const struct sockaddr *hwaddr) {
   * Adds the given interface to the capture list.
   */
 int add_interface(capture_session *session, char *device_name, bool enable_promisc) {
-	if (session->interface_count + 1 > MAXIMUM_INTERFACE_COUNT) {
-		msg(MSG_ERROR, "This build supports at maximum %d interfaces per session.", session->interface_count);
+	if (session->interface_count >= MAXIMUM_INTERFACE_COUNT) {
+		msg(MSG_ERROR, "Maximum number of interfaces for this capture session has been reached.");
 		return -1;
 	}
-    int index, mtu;
-    struct sockaddr hwaddr;
 
-    if (setup_interface(device_name, enable_promisc, &index, &mtu, &hwaddr))
-        return -1;
+	struct ifreq req;
+	int fd = -1;
 
-    // Use SOCK_RAW rather than SOCK_DGRAM - otherwise the BPF filters do not work
-    int fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+	if (iface_info(device_name, &req, &fd) == -1) {
+		return -1;
+	}
 
-    if (fd == -1) {
-        msg(MSG_ERROR, "Failed to open raw socket for interface %s.", device_name);
-
-        return -1;
-    }
-
-#ifdef SUPPORT_PACKET_MMAP
-	struct tpacket_req req = {
-		PAGE_SIZE, // tp_block_size
-		PACKET_MMAP_BLOCK_NR, // tp_block_nr:
-		PACKET_MMAP_FRAME_SIZE, // tp_frame_size
-		PACKET_MMAP_FRAME_NR // tp_frame_nr
-	};
-
-	if (setsockopt(fd, SOL_PACKET, PACKET_RX_RING, (void *) &req, sizeof(req))) {
-		msg(MSG_ERROR, "Failed to setup PACKET_RX_RING: %s", strerror(errno));
+	struct sockaddr hwaddr;
+	if (iface_hwaddr(&req, fd, &hwaddr)) {
 		close(fd);
 		return -1;
 	}
 
-	void *buffer = mmap(0, req.tp_block_size * req.tp_block_nr,
-						PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
-	if (buffer == MAP_FAILED) {
-		msg(MSG_ERROR, "mmap failed to allocate buffer: %s", strerror(errno));
-		close(fd);
+	close(fd);
+
+	struct sock_fprog filter = build_filter(&hwaddr);
+	struct capture_info *info = start_capture(device_name, 256, &filter);
+	if (!info) {
 		return -1;
 	}
 
-	struct ring_buffer *iface_ring_buffer =
-			&session->interface_ring_buffer[session->interface_count];
-	iface_ring_buffer->ring_buffer = buffer;
-	iface_ring_buffer->current_frame_nr = 0;
-	iface_ring_buffer->fd = fd;
-#else
-	if (fcntl(fd, F_SETFL, O_NONBLOCK)) {
-		msg(MSG_ERROR, "Failed to put raw socket in non-blocking mode.");
-		close(fd);
-		return -1;
-	}
-#endif
-    union {
-        struct sockaddr_ll ll;
-        struct sockaddr addr;
-    } addr;
-
-    memset(&addr, 0, sizeof(addr));
-
-    addr.ll.sll_family = PF_PACKET;
-    addr.ll.sll_ifindex = index;
-    addr.ll.sll_protocol = htons(ETH_P_ALL);
-
-    if (bind(fd, &addr.addr, sizeof(struct sockaddr_ll))) {
-        msg(MSG_ERROR, "Failed to bind raw socket to interface %s (%s).", device_name, strerror(errno));
-
-        close(fd);
-        return -1;
-    }
-
-    struct sock_fprog filter = build_filter(&hwaddr);
-
-    if (filter.filter != NULL) {
-        if (setsockopt(fd, SOL_SOCKET,  SO_ATTACH_FILTER, &filter, sizeof(filter)) == -1) {
-            msg(MSG_ERROR, "Failed to attach filter to file descriptor (%s)", strerror(errno));
-            close(fd);
-            return -1;
-        }
-    }
-
-#ifndef SUPPORT_PACKET_MMAP
-    // Create or reallocate packet buffer
-    if (session->packet_buffer == NULL || session->packet_buffer_size < mtu) {
-        if (session->packet_buffer != NULL)
-            free(session->packet_buffer);
-
-        session->packet_buffer = (u_char *) malloc(mtu);
-
-        if (session->packet_buffer == NULL) {
-            msg(MSG_ERROR, "Failed to allocate packet buffer.");
-
-            close(fd);
-            return -1;
-        }
-
-        session->packet_buffer_size = mtu;
-    }
-#endif
-
-	// Update pollfd list
+	session->interfaces[session->interface_count] = info;
 	session->interface_count++;
 
-	struct pollfd *entry = session->pollfd + (session->interface_count - 1);
+	struct flow_capture_callback_param *param =
+			(struct flow_capture_callback_param *) malloc(sizeof(struct flow_capture_callback_param));
 
-	entry->fd = fd;
-	entry->events = POLLIN;
-	entry->revents = 0;
+	param->session = session;
+	param->info = info;
 
-	event_loop_add_fd(fd, (void (*)(int, void *)) &capture_callback, session);
+	event_loop_add_fd(info->fd, (void (*) (int, void *)) &capture_callback, param);
 
     return 0;
 }
-
-
 
 /**
   * Stops the given capture session. It is not possible to use this session from the
   * capture call afterwards.
   */
 void stop_capture_session(capture_session *session) {
-    if (session->pollfd != NULL) {
-        int i;
-        for (i = 0; i < session->interface_count; i++)
-            close((session->pollfd + i)->fd);
-
-        free(session->pollfd);
-
-        session->interface_count = 0;
-    }
-
-#ifdef SUPPORT_PACKET_MMAP
 	int i;
-	for (i = 0; i < MAXIMUM_INTERFACE_COUNT; i++) {
-		void *buffer = session->interface_ring_buffer[i].ring_buffer;
-		munmap(buffer, PACKET_MMAP_BLOCK_NR * PAGE_SIZE);
-	}
-#else
-    if (session->packet_buffer != NULL) {
-        free(session->packet_buffer);
 
-        session->packet_buffer = NULL;
-        session->packet_buffer_size = 0;
-    }
-#endif
+	for (i = 0; i < session->interface_count; i++) {
+		stop_capture(session->interfaces[i]);
+	}
 
     khash_t(1) *flow_database = session->flow_database;
 
@@ -331,6 +173,7 @@ static int parse_ethernet(capture_session *session, struct pktinfo *pkt) {
         msg(MSG_ERROR, "Packet too short to be a valid ethernet packet.");
         return -1;
     }
+	DPRINTF("Parsing ethernet header");
 
     const struct ether_header * const hdr = (const struct ether_header * const) pkt->data;
 
@@ -428,10 +271,6 @@ static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *fl
 
     pkt->data += sizeof(struct udphdr);
 
-    if (flow->dst_port == htons(OLSR_PORT)) {
-        olsr_parse_packet(session, pkt, flow);
-    }
-
     flow_info *info = NULL;
     khiter_t k;
     k = kh_get(1, session->flow_database, flow);
@@ -461,7 +300,7 @@ static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *fl
     }
 
     info->last_packet_timestamp = time(NULL);
-    info->total_bytes += pkt->end_data - pkt->start_data;
+	info->total_bytes += pkt->orig_len;
 
     return 0;
 }
@@ -513,7 +352,7 @@ static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *fl
     }
 
     info->last_packet_timestamp = time(NULL);
-    info->total_bytes += pkt->end_data - pkt->data;
+	info->total_bytes += pkt->orig_len;
 
     return 0;
 }
@@ -524,7 +363,7 @@ void statistics_callback(capture_session *session) {
 
 	for (i = 0; i < session->interface_count; i++) {
 		socklen_t kstats_len = sizeof(kstats);
-		if (getsockopt((session->pollfd + i)->fd, SOL_PACKET, PACKET_STATISTICS,
+		if (getsockopt(session->interfaces[i]->fd, SOL_PACKET, PACKET_STATISTICS,
 					   &kstats, &kstats_len))
 			continue;
 
@@ -535,56 +374,18 @@ void statistics_callback(capture_session *session) {
 	}
 }
 
-void capture_callback(int fd, capture_session *session) {
-#ifdef SUPPORT_PACKET_MMAP
-	struct ring_buffer *interface_ring_buffer = NULL;
-	int i;
+void capture_callback(int fd, struct flow_capture_callback_param *param) {
+	size_t len;
+	size_t orig_len;
+	uint8_t *buffer;
 
-	for (i = 0; i < MAXIMUM_INTERFACE_COUNT; i++) {
-		if (session->interface_ring_buffer[i].fd == fd) {
-			interface_ring_buffer = &session->interface_ring_buffer[i];
-			break;
-		}
+	while ((buffer = capture_packet(param->info, &len, &orig_len))) {
+		struct pktinfo pkt = { buffer, buffer + len, buffer, orig_len };
+		parse_ethernet(param->session, &pkt);
+
+		capture_packet_done(param->info);
 	}
-#endif
 
-	while (1) {
-#ifdef SUPPORT_PACKET_MMAP
-		uint8_t *buffer = (uint8_t *) interface_ring_buffer->ring_buffer;
-		buffer += interface_ring_buffer->current_frame_nr * PACKET_MMAP_FRAME_SIZE;
-
-		struct tpacket_hdr *hdr = (struct tpacket_hdr *) buffer;
-
-		if (hdr->tp_status == 0)
-			break;
-
-		buffer += hdr->tp_mac;
-		struct pktinfo pkt = { buffer, buffer + hdr->tp_len, buffer };
-
-		session->interface_ring_buffer[0].current_frame_nr =
-				(session->interface_ring_buffer[0].current_frame_nr + 1) % (PACKET_MMAP_FRAME_NR);
-#else
-		union {
-			struct sockaddr_ll ll_addr;
-			struct sockaddr addr;
-		} addr;
-		socklen_t addr_len = sizeof(struct sockaddr_ll);
-		size_t len = recvfrom(fd, session->packet_buffer, session->packet_buffer_size, 0, (struct sockaddr *) &addr.addr, &addr_len);
-
-		if (len == -1) {
-			if (errno != EAGAIN && errno != EWOULDBLOCK)
-				msg(MSG_ERROR, strerror(errno));
-			return;
-		} else if (len == 0)
-			return;
-
-		struct pktinfo pkt = { session->packet_buffer, session->packet_buffer + len, session->packet_buffer };
-#endif
-		parse_ethernet(session, &pkt);
-#ifdef SUPPORT_PACKET_MMAP
-		hdr->tp_status = 0;
-#endif
-	}
 }
 
 void flow_export_callback(capture_session *session) {
