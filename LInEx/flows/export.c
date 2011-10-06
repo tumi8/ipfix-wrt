@@ -59,13 +59,6 @@ struct olsr_template_info templates[] = {
 		{ 0 }
 	}
 },
-{ NodeTemplateIPv6,
-	(struct olsr_template_field []) {
-		{NodeAddressIPv6Type, ENTERPRISE_ID, sizeof(struct in6_addr)},
-		{ 293, 0, 0xffff },
-		{ 0 }
-	}
-},
 { TargetHostTemplateIPv4,
 	(struct olsr_template_field []) {
 		{TargetHostIPv4Type, ENTERPRISE_ID, sizeof(uint32_t)},
@@ -73,24 +66,9 @@ struct olsr_template_info templates[] = {
 		{ 0 }
 	}
 },
-{ TargetHostTemplateIPv6,
-	(struct olsr_template_field []) {
-		{TargetHostIPv6Type, ENTERPRISE_ID, sizeof(struct in6_addr)},
-		{OLSRSequenceNumberType, ENTERPRISE_ID, sizeof(uint16_t) },
-		{ 0 }
-	}
-},
 { NeighborHostTemplateIPv4,
 	(struct olsr_template_field []) {
 		{NeighborHostIPv4Type, ENTERPRISE_ID, sizeof(uint32_t)},
-		{NeighborLinkCodeType, ENTERPRISE_ID, sizeof(uint8_t) },
-		{NeighborLQType, ENTERPRISE_ID, sizeof(uint32_t) },
-		{ 0 }
-	}
-},
-{ NeighborHostTemplateIPv6,
-	(struct olsr_template_field []) {
-		{NeighborHostIPv6Type, ENTERPRISE_ID, sizeof(struct in6_addr)},
 		{NeighborLinkCodeType, ENTERPRISE_ID, sizeof(uint8_t) },
 		{NeighborLQType, ENTERPRISE_ID, sizeof(uint32_t) },
 		{ 0 }
@@ -109,6 +87,30 @@ struct olsr_template_info templates[] = {
 		{ 0 }
 	}
 },
+#ifdef SUPPORT_IPV6
+{ NodeTemplateIPv6,
+	(struct olsr_template_field []) {
+		{NodeAddressIPv6Type, ENTERPRISE_ID, sizeof(struct in6_addr)},
+		{ 293, 0, 0xffff },
+		{ 0 }
+	}
+},
+{ TargetHostTemplateIPv6,
+	(struct olsr_template_field []) {
+		{TargetHostIPv6Type, ENTERPRISE_ID, sizeof(struct in6_addr)},
+		{OLSRSequenceNumberType, ENTERPRISE_ID, sizeof(uint16_t) },
+		{ 0 }
+	}
+},
+{ NeighborHostTemplateIPv6,
+	(struct olsr_template_field []) {
+		{NeighborHostIPv6Type, ENTERPRISE_ID, sizeof(struct in6_addr)},
+		{NeighborLinkCodeType, ENTERPRISE_ID, sizeof(uint8_t) },
+		{NeighborLQType, ENTERPRISE_ID, sizeof(uint32_t) },
+		{ 0 }
+	}
+},
+#endif
 };
 
 #define FLOW_TEMPLATE_LEN (sizeof(uint8_t) + 2 * sizeof(uint16_t) + sizeof(uint64_t) + 2 * sizeof(uint32_t))
@@ -267,9 +269,11 @@ static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
 	case IPv4:
 		pkt_put_u16(&buffer->pos, NeighborHostTemplateIPv4);
 		break;
+#ifdef SUPPORT_IPV6
 	case IPv6:
 		pkt_put_u16(&buffer->pos, NeighborHostTemplateIPv6);
 		break;
+#endif
 	default:
 		THROWEXCEPTION("Invalid address type %d", addr->protocol);
 		break;
@@ -336,9 +340,11 @@ static size_t node_list_encode(network_protocol proto,
 	case IPv4:
 		pkt_put_u16(&buffer->pos, NodeTemplateIPv4);
 		break;
+#ifdef SUPPORT_IPV6
 	case IPv6:
 		pkt_put_u16(&buffer->pos, NodeTemplateIPv6);
 		break;
+#endif
 	default:
 		THROWEXCEPTION("Invalid address type %d", proto);
 		break;
@@ -435,9 +441,11 @@ static size_t target_host_list_encode(const struct ip_addr_t *addr,
 	case IPv4:
 		pkt_put_u16(&buffer->pos, TargetHostTemplateIPv4);
 		break;
+#ifdef SUPPORT_IPV6
 	case IPv6:
 		pkt_put_u16(&buffer->pos, TargetHostTemplateIPv6);
 		break;
+#endif
 	default:
 		THROWEXCEPTION("Invalid address type %d", addr->protocol);
 		break;
@@ -539,12 +547,13 @@ void export_flows(struct export_flow_parameter *param) {
 						 session,
 						 FlowTemplateIPv4,
 						 FLOW_TEMPLATE_IPV4_LEN);
-
+#ifdef SUPPORT_IPV6
 	export_flow_database(session->ipv6_flow_database,
 						 exporter,
 						 session,
 						 FlowTemplateIPv6,
 						 FLOW_TEMPLATE_IPV6_LEN);
+#endif
 }
 
 static void export_flow_database(khash_t(1) *flow_database,

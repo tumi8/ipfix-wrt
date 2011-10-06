@@ -14,7 +14,9 @@ uint32_t ip_addr_eq(struct ip_addr_t a, struct ip_addr_t b) {
 	if (a.protocol == IPv4) {
 		return memcmp(&a.addr.v4, &b.addr.v4, sizeof(a.addr.v4)) == 0;
 	} else {
+#ifdef SUPPORT_IPV6
 		return memcmp(&a.addr.v6, &b.addr.v6, sizeof(a.addr.v6)) == 0;
+#endif
 	}
 }
 
@@ -28,7 +30,9 @@ inline static uint32_t ip_addr_hash_code6(struct ip_addr_t addr) {
 	int i;
 
 	for (i = 0; i < 4; i++) {
+#ifdef SUPPORT_IPV6
 		hashcode = hashcode * 23 + *(addr.addr.v6.s6_addr + i);
+#endif
 	}
 
 	return hashcode;

@@ -21,13 +21,15 @@ enum olsr_ipfix_type {
 enum olsr_template_id {
 	BaseTemplate = 888,
 	NodeTemplateIPv4,
-	NodeTemplateIPv6,
 	TargetHostTemplateIPv4,
-	TargetHostTemplateIPv6,
 	NeighborHostTemplateIPv4,
-	NeighborHostTemplateIPv6,
 	FlowTemplateIPv4,
+#ifdef SUPPORT_IPV6
+	NodeTemplateIPv6,
+	TargetHostTemplateIPv6,
+	NeighborHostTemplateIPv6,
 	FlowTemplateIPv6
+#endif
 };
 
 struct olsr_template_field {

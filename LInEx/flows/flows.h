@@ -44,10 +44,12 @@ typedef struct capture_session_t {
       */
 	khash_t(1) *ipv4_flow_database;
 
+#ifdef SUPPORT_IPV6
 	/**
 	  * Hash table containing the currently active IPv6 flows.
 	  */
 	khash_t(1) *ipv6_flow_database;
+#endif
 
     /**
       * The timeout in seconds after which a flow is regarded as inactive and

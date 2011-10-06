@@ -50,12 +50,16 @@ typedef enum transport_protocol_t {
 
 typedef enum network_protocol_t {
 	IPv4,
+#ifdef SUPPORT_IPV6
 	IPv6
+#endif
 } network_protocol;
 
 union olsr_ip_addr {
     struct in_addr v4;
+#ifdef SUPPORT_IPV6
     struct in6_addr v6;
+#endif
 };
 
 typedef struct ip_addr_t {
@@ -70,9 +74,11 @@ static inline uint16_t ip_addr_len(enum network_protocol_t type) {
     switch (type) {
     case IPv4:
         return sizeof(struct in_addr);
+#ifdef SUPPORT_IPV6
     case IPv6:
         return sizeof(struct in6_addr);
-    default:
+#endif
+	default:
 		THROWEXCEPTION("Unsupported IP address type %d", type);
     }
 }
@@ -182,9 +188,11 @@ pkt_get_ip_address(const uint8_t ** p, union olsr_ip_addr * var, enum network_pr
         var->v4.s_addr = *((uint32_t *) *p);
         *p += sizeof(uint32_t);
     } else {
+#ifdef SUPPORT_IPV6
         memcpy(&var->v6.s6_addr, *p, sizeof(var->v6));
         *p += sizeof(var->v6);
-    }
+#endif
+	}
 }
 
 static inline void

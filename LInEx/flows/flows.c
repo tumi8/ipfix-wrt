@@ -24,7 +24,9 @@
 #include <fcntl.h>
 
 static int parse_ipv4(capture_session *session, struct pktinfo *pkt);
+#ifdef SUPPORT_IPV6
 static int parse_ipv6(capture_session *session, struct pktinfo *pkt);
+#endif
 static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
 static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
 
@@ -64,8 +66,9 @@ static struct sock_filter ip_filter[] = {
 int start_capture_session(capture_session *session, uint16_t export_timeout) {
     session->export_timeout = export_timeout;
 	session->ipv4_flow_database = kh_init(1);
+#ifdef SUPPORT_IPV6
 	session->ipv6_flow_database = kh_init(1);
-
+#endif
 	session->interface_count = 0;
     return 0;
 }
@@ -172,8 +175,10 @@ void stop_capture_session(capture_session *session) {
 	free_flow_database(session->ipv4_flow_database);
 	session->ipv4_flow_database = NULL;
 
+#ifdef SUPPORT_IPV6
 	free_flow_database(session->ipv6_flow_database);
 	session->ipv6_flow_database = NULL;
+#endif
 }
 
 
@@ -191,8 +196,10 @@ static int parse_ethernet(capture_session *session, struct pktinfo *pkt) {
     switch (ntohs(hdr->ether_type)) {
     case ETHERTYPE_IP:
 		return parse_ipv4(session, pkt);
+#ifdef SUPPORT_IPV6
     case ETHERTYPE_IPV6:
 		return parse_ipv6(session, pkt);
+#endif
     default:
 		DPRINTF("Unsupported link layer protocol (%x).", ntohs(hdr->ether_type));
         return 0;
@@ -254,6 +261,7 @@ static int parse_ipv4(capture_session *session, struct pktinfo *pkt) {
     }
 }
 
+#ifdef SUPPORT_IPV6
 static int parse_ipv6(capture_session *session, struct pktinfo *pkt) {
     if (pkt->data + sizeof(struct ip6_hdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid IPv6 packet by %td bytes.", (pkt->data + sizeof(struct iphdr) - pkt->end_data));
@@ -264,6 +272,7 @@ static int parse_ipv6(capture_session *session, struct pktinfo *pkt) {
 
     return 0;
 }
+#endif
 
 static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *flow) {
     if (pkt->data + sizeof(struct udphdr) > pkt->end_data) {
@@ -287,9 +296,11 @@ static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *fl
 	case IPv4:
 		flow_database = session->ipv4_flow_database;
 		break;
+#ifdef SUPPORT_IPV6
 	case IPv6:
 		flow_database = session->ipv6_flow_database;
 		break;
+#endif
 	}
 
 	k = kh_get(1, flow_database, flow);
@@ -342,9 +353,11 @@ static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *fl
 	case IPv4:
 		flow_database = session->ipv4_flow_database;
 		break;
+#ifdef SUPPORT_IPV6
 	case IPv6:
 		flow_database = session->ipv6_flow_database;
 		break;
+#endif
 	}
 
 	k = kh_get(1, flow_database, flow);
@@ -434,6 +447,7 @@ static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
     return hashcode;
 }
 
+#ifdef SUPPORT_IPV6
 static uint32_t flow_key_hash_code_ipv6(flow_key *key, uint32_t hashcode) {
     uint8_t *addr1;
     uint8_t *addr2;
@@ -454,6 +468,7 @@ static uint32_t flow_key_hash_code_ipv6(flow_key *key, uint32_t hashcode) {
 
     return hashcode;
 }
+#endif
 
 uint32_t flow_key_hash_code(struct flow_key_t *key) {
     uint32_t hashcode = 17;
@@ -475,8 +490,10 @@ uint32_t flow_key_hash_code(struct flow_key_t *key) {
     switch (key->protocol) {
     case IPv4:
 		return flow_key_hash_code_ipv4(key, hashcode);
+#ifdef SUPPORT_IPV6
     case IPv6:
 		return flow_key_hash_code_ipv6(key, hashcode);
+#endif
     default:
         msg(MSG_ERROR, "Hashcode was called for unsupported flow key type.");
         return hashcode;
@@ -495,6 +512,7 @@ static int flow_key_equals_ipv4(const flow_key *a, const flow_key *b) {
 			 a->dst_port == b->src_port);
 }
 
+#ifdef SUPPORT_IPV6
 static int flow_key_equals_ipv6(const flow_key *a, const flow_key *b) {
 	return (memcmp(&a->src_addr.v6, &b->src_addr.v6, sizeof(a->src_addr.v6)) == 0 &&
 			memcmp(&a->dst_addr.v6, &b->dst_addr.v6, sizeof(a->dst_addr.v6)) == 0 &&
@@ -506,6 +524,7 @@ static int flow_key_equals_ipv6(const flow_key *a, const flow_key *b) {
 			 a->src_port == b->dst_port &&
 			 a->dst_port == b->src_port);
 }
+#endif
 
 
 int flow_key_equals(struct flow_key_t *a, struct flow_key_t *b) {
@@ -517,8 +536,10 @@ int flow_key_equals(struct flow_key_t *a, struct flow_key_t *b) {
     switch (a->protocol) {
     case IPv4:
 		return flow_key_equals_ipv4(a, b);
+#ifdef SUPPORT_IPV6
     case IPv6:
 		return flow_key_equals_ipv6(a, b);
+#endif
     default:
         msg(MSG_ERROR, "Equals was called for unsupported flow key type.");
         return 0;

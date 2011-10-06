@@ -41,8 +41,10 @@ struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs, uni
 			if (hs_entry->neighbor_addr.v4.s_addr == addr->v4.s_addr)
 				break;
 		} else {
+#ifdef SUPPORT_IPV6
 			if (memcmp(&hs_entry->neighbor_addr.v6, &addr->v6, sizeof(addr->v6)))
 				break;
+#endif
 		}
 
 		hs_entry = hs_entry->next;

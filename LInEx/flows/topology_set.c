@@ -40,8 +40,10 @@ struct topology_set_entry *find_or_create_topology_set_entry(struct topology_set
 			if (ts_entry->dest_addr.v4.s_addr == addr->v4.s_addr)
 				break;
 		} else {
+#ifdef SUPPORT_IPV6
 			if (memcmp(&ts_entry->dest_addr.v6, &addr->v6, sizeof(addr->v6)))
 				break;
+#endif
 		}
 
 		ts_entry = ts_entry->next;
