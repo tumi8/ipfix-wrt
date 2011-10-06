@@ -158,6 +158,26 @@ void init_config_regex(){
 	config_regex_inited = 1;
 }
 
+void deinit_config_regex() {
+	regfree(&regex_comment);
+	regfree(&regex_empty_line);
+	regfree(&regex_record_selector);
+	regfree(&regex_source_selector);
+	regfree(&regex_source_suffix);
+	regfree(&regex_rule);
+	regfree(&regex_collector);
+	regfree(&regex_interval);
+	regfree(&regex_interface);
+	regfree(&regex_compression);
+	regfree(&regex_odid);
+	regfree(&regex_xmlfile);
+	regfree(&regex_xmlpostprocessing);
+	regfree(&regex_xmlrecord_selector);
+	regfree(&regex_xml_rule);
+
+	config_regex_inited = 0;
+}
+
 /**
  * Extracts the content of the capturing group <match> from the <input>
  * and returns it as a string.
@@ -605,6 +625,9 @@ config_file_descriptor* read_config(char* filename){
 		msg(MSG_VDEBUG, "Parsed configuration:");
 		echo_config_file(current_config_file);
 	}
+
+	// Free regexps to save memory
+	deinit_config_regex();
 
 	return current_config_file;
 }
