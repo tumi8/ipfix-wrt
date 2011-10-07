@@ -3,6 +3,7 @@
 #include "hello_set.h"
 #include "olsr_protocol.h"
 #include "capture.h"
+#include "ip_helper.h"
 #include "../event_loop.h"
 #include "../ipfixlolib/msg.h"
 
@@ -58,7 +59,9 @@ int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol);
 
 static int parse_packet_header(struct pktinfo *pkt);
 static int parse_packet_header_ipv4(struct pktinfo *pkt);
+#ifdef SUPPORT_IPV6
 static int parse_packet_header_ipv6(struct pktinfo *pkt);
+#endif
 
 void olsr_callback(int fd, struct capture_info *info);
 
@@ -99,8 +102,10 @@ static int parse_packet_header(struct pktinfo *pkt) {
 	switch (ntohs(hdr->ether_type)) {
 	case ETHERTYPE_IP:
 		return parse_packet_header_ipv4(pkt);
+#ifdef SUPPORT_IPV6
 	case ETHERTYPE_IPV6:
 		return parse_packet_header_ipv6(pkt);
+#endif
 	default:
 		DPRINTF("Unsupported link layer protocol (%x).", ntohs(hdr->ether_type));
 		return -1;
@@ -138,9 +143,23 @@ static int parse_packet_header_ipv4(struct pktinfo *pkt) {
 	return olsr_parse_packet(pkt, IPv4);
 }
 
+#ifdef SUPPORT_IPV6
 static int parse_packet_header_ipv6(struct pktinfo *pkt) {
-	return -1;
+	int transport_protocol = ipv6_extract_transport_protocol(pkt);
+
+	if (transport_protocol == -1 || transport_protocol != SOL_UDP)
+		return -1;
+
+	if (pkt->data + sizeof(struct udphdr) > pkt->end_data) {
+		msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
+		return -1;
+	}
+
+	pkt->data += sizeof(struct udphdr);
+
+	return olsr_parse_packet(pkt, IPv6);
 }
+#endif
 
 /**
   * Attemps to parse an OLSR packet.

@@ -110,6 +110,19 @@ struct olsr_template_info templates[] = {
 		{ 0 }
 	}
 },
+{ FlowTemplateIPv6,
+	(struct olsr_template_field []) {
+		{IPFIX_TYPEID_sourceIPv6Address, 0, sizeof(struct in6_addr)},
+		{IPFIX_TYPEID_destinationIPv6Address, 0, sizeof(struct in6_addr) },
+		{IPFIX_TYPEID_protocolIdentifier, 0, sizeof(uint8_t) },
+		{IPFIX_TYPEID_sourceTransportPort, 0, sizeof(uint16_t) },
+		{IPFIX_TYPEID_destinationTransportPort, 0, sizeof(uint16_t) },
+		{IPFIX_TYPEID_octetTotalCount, 0, sizeof(uint64_t) },
+		{IPFIX_TYPEID_flowStartSeconds, 0, sizeof(uint32_t) },
+		{IPFIX_TYPEID_flowEndSeconds, 0, sizeof(uint32_t) },
+		{ 0 }
+	}
+},
 #endif
 };
 

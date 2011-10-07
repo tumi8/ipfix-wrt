@@ -10,7 +10,7 @@
 struct topology_set *find_or_create_topology_set(node_set_hash *node_set,
 												 struct ip_addr_t *addr) {
 	struct node_entry *node = find_or_create_node_entry(node_set,
-														&addr);
+														addr);
 
 	if (!node->topology_set) {
 		struct topology_set *ts =

@@ -31,13 +31,6 @@ int flow_key_equals(struct flow_key_t *a, struct flow_key_t *b);
 
 KHASH_INIT(1, struct flow_key_t *, struct flow_info_t *, 1, hash_code, hash_eq)
 
-struct pktinfo {
-    const u_char *const start_data;
-    const u_char *const end_data;
-    const u_char *data;
-	const uint16_t orig_len;
-};
-
 typedef struct capture_session_t {
     /**
 	  * Hash table containing the currently active IPv4 flows.

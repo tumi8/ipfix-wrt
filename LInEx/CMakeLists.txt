@@ -45,6 +45,7 @@ ADD_EXECUTABLE(LInEx
 	flows/olsr_protocol.h
 	flows/capture.c
 	flows/iface.c
+	flows/ip_helper.c
 )
 
 

@@ -1,6 +1,7 @@
 #include "flows.h"
 #include "../ipfixlolib/msg.h"
 #include "iface.h"
+#include "ip_helper.h"
 
 #include "../event_loop.h"
 
@@ -263,14 +264,28 @@ static int parse_ipv4(capture_session *session, struct pktinfo *pkt) {
 
 #ifdef SUPPORT_IPV6
 static int parse_ipv6(capture_session *session, struct pktinfo *pkt) {
-    if (pkt->data + sizeof(struct ip6_hdr) > pkt->end_data) {
-        msg(MSG_ERROR, "Packet too short to be a valid IPv6 packet by %td bytes.", (pkt->data + sizeof(struct iphdr) - pkt->end_data));
-        return -1;
-    }
+	// No need to check the length - ipv6_extract_transport_protocol does that
+	// for us.
+	const struct ip6_hdr * const hdr = (const struct ip6_hdr * const) pkt->data;
+	int transport_protocol = ipv6_extract_transport_protocol(pkt);
 
-    // const struct ip6_hdr * const hdr = (const struct ip6_hdr * const) data;
+	if (transport_protocol == -1)
+		return -1;
 
-    return 0;
+	struct flow_key_t flow;
+
+	memcpy(&flow.dst_addr, &hdr->ip6_dst, sizeof(hdr->ip6_dst));
+	memcpy(&flow.src_addr, &hdr->ip6_src, sizeof(hdr->ip6_src));
+	flow.protocol = IPv6;
+
+	switch (transport_protocol) {
+	case 6:
+		return parse_tcp(session, pkt, &flow);
+	case 17:
+		return parse_udp(session, pkt, &flow);
+	default:
+		return -1;
+	}
 }
 #endif
 
