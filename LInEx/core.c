@@ -189,6 +189,15 @@ int main(int argc, char **argv)
 		}
 	}
 
+#ifdef SUPPORT_ANONYMIZATION
+	if (init_cryptopan(&session.cryptopan,
+					   conf->anonymization_key,
+					   conf->anonymization_pad)) {
+		msg(MSG_ERROR, "Failed to initialize CryptoPAN.");
+		return 1;
+	}
+#endif
+
 	// Declare IPFIX templates to export monitoring information
 	if (declare_templates(send_exporter))
 		msg(MSG_ERROR, "Failed to export templates.");

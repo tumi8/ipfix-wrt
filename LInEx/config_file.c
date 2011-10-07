@@ -53,6 +53,7 @@ regex_t regex_collector;
 regex_t regex_interval;
 regex_t regex_interface;
 regex_t regex_compression;
+regex_t regex_anonymization;
 regex_t regex_odid;
 regex_t regex_xmlfile;
 regex_t regex_xmlpostprocessing;
@@ -75,6 +76,10 @@ config_file_descriptor* create_config_file_descriptor(){
 	current_config_file->interfaces = list_create();
 	current_config_file->compression_method = NULL;
 	current_config_file->compression_method_params = NULL;
+#ifdef SUPPORT_ANONYMIZATION
+	memset(current_config_file->anonymization_key, 0, sizeof(current_config_file->anonymization_key));
+	memset(current_config_file->anonymization_pad, 0, sizeof(current_config_file->anonymization_pad));
+#endif
 	current_config_file->observation_domain_id = OBSERVATION_DOMAIN_STANDARD_ID;
 	current_config_file->xmlfile = NULL;
 	current_config_file->xmlpostprocessing = NULL;
@@ -150,6 +155,9 @@ void init_config_regex(){
 	regcomp(&regex_interval,"^[ \t]*INTERVAL[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interface,"^[ \t]*INTERFACE[ \t]+([A-Za-z0-9.-]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_compression,"^\\s*COMPRESSION\\s+(\\w+)(\\s+(.+))?\\s*",REG_EXTENDED);
+#ifdef SUPPORT_ANONYMIZATION
+	regcomp(&regex_anonymization,"^\\s*ANONYMIZATION\\s+([A-Fa-f0-9]+)\\s+([A-Fa-f0-9]+)\\s*$", REG_EXTENDED);
+#endif
 	regcomp(&regex_odid,"^[ \t]*ODID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlfile,"^[ \t]*XMLFILE[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlpostprocessing,"^[ \t]*XMLPOSTPROCESSING[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
@@ -169,6 +177,9 @@ void deinit_config_regex() {
 	regfree(&regex_interval);
 	regfree(&regex_interface);
 	regfree(&regex_compression);
+#ifdef SUPPORT_ANONYMIZATION
+	regfree(&regex_anonymization);
+#endif
 	regfree(&regex_odid);
 	regfree(&regex_xmlfile);
 	regfree(&regex_xmlpostprocessing);
@@ -398,6 +409,55 @@ int process_compression_line(char* line, int in_line){
 	return 1;
 }
 
+#ifdef SUPPORT_ANONYMIZATION
+void read_hex_string(char *input, uint8_t *dst, size_t dst_len) {
+	char *c = input + strlen(input);
+	size_t pos = dst_len - 1;
+	uint8_t msb = 0;
+
+	while (c != input && pos >= 0) {
+		*c = 0;
+		c--;
+
+		unsigned int val = strtoull(c, NULL, 16);
+		if (msb)
+			val <<= 4;
+
+		dst[pos] |= val;
+
+		if (msb) {
+			pos--;
+			msb = 0;
+		} else {
+			msb = 1;
+		}
+	}
+}
+
+/**
+ * Processes the anonymization line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
+int process_anonymization_line(char* line, int in_line){
+	if(regexec(&regex_anonymization,line,3,config_buffer,0)){
+		THROWEXCEPTION("ANONYMIZATION line %d in config file is malformed:\n%s",in_line,line);
+	}
+
+	char *key = extract_string_from_regmatch(&config_buffer[1], line);
+	char *pad = extract_string_from_regmatch(&config_buffer[2], line);
+
+	read_hex_string(key, current_config_file->anonymization_key,
+					sizeof(current_config_file->anonymization_key));
+	read_hex_string(pad, current_config_file->anonymization_pad,
+					sizeof(current_config_file->anonymization_pad));
+
+	free(key);
+	free(pad);
+
+	return 1;
+}
+#endif
 
 
 /**
@@ -519,7 +579,11 @@ int process_config_line(char* line, int in_line){
 			} else if(!regexec(&regex_compression,line,2,config_buffer,0)) {
 				process_compression_line(line, in_line);
 			} else if (!regexec(&regex_interface,line,2,config_buffer,0)) {
-					process_interface_line(line, in_line);
+				process_interface_line(line, in_line);
+#ifdef SUPPORT_ANONYMIZATION
+			} else if (!regexec(&regex_anonymization,line,2,config_buffer,0)) {
+				process_anonymization_line(line, in_line);
+#endif
 			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
 				process_odid_line(line, in_line);
 			} else if(!regexec(&regex_xmlrecord_selector,line,2,config_buffer,0)) {

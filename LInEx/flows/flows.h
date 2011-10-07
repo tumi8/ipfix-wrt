@@ -20,6 +20,10 @@
 #define ETHERTYPE_IPV6 0x86dd
 #endif
 
+#ifdef SUPPORT_ANONYMIZATION
+#include "anonymize/cryptopan.h"
+#endif
+
 struct flow_key_t;
 struct flow_info_t;
 
@@ -44,6 +48,12 @@ typedef struct capture_session_t {
 	khash_t(1) *ipv6_flow_database;
 #endif
 
+#ifdef SUPPORT_ANONYMIZATION
+	/**
+	  * State for CryptoPAN.
+	  */
+	struct cryptopan cryptopan;
+#endif
     /**
       * The timeout in seconds after which a flow is regarded as inactive and
       * will be exported.

@@ -98,6 +98,10 @@ typedef struct{
 	char* xmlpostprocessing;
 	char* compression_method;
 	char* compression_method_params;
+#ifdef SUPPORT_ANONYMIZATION
+	uint8_t anonymization_key[16];
+	uint8_t anonymization_pad[16];
+#endif
 } config_file_descriptor;
 
 /**

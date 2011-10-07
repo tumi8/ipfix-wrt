@@ -620,8 +620,17 @@ static void export_flow_database(khash_t(1) *flow_database,
 			buffer_end = message_buffer + ipfix_get_remaining_space(exporter);
 		}
 
+#ifdef SUPPORT_ANONYMIZATION
+		if (key->protocol == IPv4) {
+			key->src_addr.v4.s_addr = anonymize_ipv4(&session->cryptopan,
+													 key->src_addr.v4.s_addr);
+			key->dst_addr.v4.s_addr = anonymize_ipv4(&session->cryptopan,
+													 key->dst_addr.v4.s_addr);
+		}
+#endif
 		pkt_put_ipaddress(&buffer, &key->src_addr, key->protocol);
 		pkt_put_ipaddress(&buffer, &key->dst_addr, key->protocol);
+
 		switch (key->t_protocol) {
 		case TRANSPORT_UDP:
 			pkt_put_u8(&buffer, 17);
