@@ -84,10 +84,12 @@ typedef struct flow_key_t {
     transport_protocol t_protocol;
     /**
 	  * Source port of the flow.
+	  * NOTE: This value is in network by order.
 	  */
     uint16_t src_port;
     /**
 	  * Destination port of the flow.
+	  * NOTE: This value is in network by order.
 	  */
     uint16_t dst_port;
 	/**

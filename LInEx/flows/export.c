@@ -643,8 +643,10 @@ static void export_flow_database(khash_t(1) *flow_database,
 			break;
 		}
 
-		pkt_put_u16(&buffer, key->src_port);
-		pkt_put_u16(&buffer, key->dst_port);
+		*((uint16_t *) buffer) = key->src_port;
+		buffer += sizeof(uint16_t);
+		*((uint16_t *) buffer) = key->dst_port;
+		buffer += sizeof(uint16_t);
 		pkt_put_u64(&buffer, info->total_bytes);
 		pkt_put_u32(&buffer, info->first_packet_timestamp);
 		pkt_put_u32(&buffer, info->last_packet_timestamp);
