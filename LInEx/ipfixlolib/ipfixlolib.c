@@ -3602,13 +3602,13 @@ int ipfix_init_compression(ipfix_exporter *exporter,
 	}
 
 	char filename[FILENAME_MAX];
-	snprintf(filename, FILENAME_MAX, "lib%s.so",
+	snprintf(filename, FILENAME_MAX, "ipfixlolib/lib%s.so",
 			 module_name);
 	filename[FILENAME_MAX - 1] = 0;
 
-	exporter->compression_handle = dlopen(filename, RTLD_LAZY);
+	exporter->compression_handle = dlopen(filename, RTLD_NOW);
 	if (!exporter->compression_handle) {
-		msg(MSG_ERROR, "Failed to open compression module: %s", dlerror());
+		msg(MSG_ERROR, "Failed to open compression module (%s): %s", filename, dlerror());
 		return -1;
 	}
 
