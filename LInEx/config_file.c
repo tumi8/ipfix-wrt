@@ -146,18 +146,20 @@ transform_rule* create_transform_rule(){
  * Inits the regular expressions needed for config parsing.
  */
 void init_config_regex(){
+	// Regex on OpenWRT does not support predefined character classes such as
+	// \s or \w.
 	regcomp(&regex_comment,"^[ \t]*\\#.*$",REG_EXTENDED);
 	regcomp(&regex_empty_line,"^[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_record_selector,"^[ \t]*(RECORD|MULTIRECORD)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_source_selector,"^[ \t]*(FILE|COMMAND).*$",REG_EXTENDED);
 	regcomp(&regex_source_suffix,"^[ \t]*([A-Za-z0-9/_-]+|\"([^\"]*)\")[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*\"(.*)\"[ \t\n]*",REG_EXTENDED);
 	regcomp(&regex_rule,"^[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})(\\s+(TCP|UDP|SCTP))?\\s*$",REG_EXTENDED);
+	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})([ \t]+(TCP|UDP|SCTP))?[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interval,"^[ \t]*INTERVAL[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interface,"^[ \t]*INTERFACE[ \t]+([A-Za-z0-9.-]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_compression,"^\\s*COMPRESSION\\s+(\\w+)(\\s+(.+))?\\s*",REG_EXTENDED);
+	regcomp(&regex_compression,"^[ \t]*COMPRESSION[ \t]+([A-Za-z0-9.-]+)([ \t]+(.+))?[ \t\n]*$",REG_EXTENDED);
 #ifdef SUPPORT_ANONYMIZATION
-	regcomp(&regex_anonymization,"^\\s*ANONYMIZATION\\s+([A-Fa-f0-9]+)\\s+([A-Fa-f0-9]+)\\s*$", REG_EXTENDED);
+	regcomp(&regex_anonymization,"^[ \t]*ANONYMIZATION[ \t]+([A-Fa-f0-9]+)[ \t]+([A-Fa-f0-9]+)[ \t\n]*$", REG_EXTENDED);
 #endif
 	regcomp(&regex_odid,"^[ \t]*ODID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlfile,"^[ \t]*XMLFILE[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
