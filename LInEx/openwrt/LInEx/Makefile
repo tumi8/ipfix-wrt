@@ -22,11 +22,35 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 PKG_BUILD_DEPENDS:=sctp zlib libbz2
 include $(INCLUDE_DIR)/package.mk
 
-define Package/LInEx
+define Package/LInEx/template
 	SECTION:=utils
 	CATEGORY:=Utilities
 	TITLE:=LInEx
-	DEPENDS:=
+	DEPENDS:=sctp
+endef
+
+define Package/LInEx
+	$(call Package/LInEx/template)
+endef
+
+define Package/LInEx-mod-bzip2
+	$(call Package/LInEx/template)
+	DEPENDS:=LInEx
+	TITLE:=LInEx - IPFix BZip2 compression module
+	DEPENDS:=libbz2
+endef
+
+define Package/LInEx-mod-deflate
+	$(call Package/LInEx/template)
+	DEPENDS:=LInEx
+	TITLE:=LInEx - IPFix DEFLATE compression module
+	DEPENDS:=zlib
+endef
+
+define Package/LInEx-mod-quicklz
+	$(call Package/LInEx/template)
+	DEPENDS:=LInEx
+	TITLE:=LInEx - IPFix QuickLZ compression module
 endef
 
 define Build/Prepare
@@ -65,5 +89,22 @@ define Package/LInEx/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/LInEx $(1)/usr/bin/
 endef
 
-$(eval $(call BuildPackage,LInEx))
+define Package/LInEx-mod-quicklz/install
+	$(INSTALL_DIR) $(1)/usr/lib/ipfixlolib
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ipfixlolib/libquicklz.so $(1)/usr/lib/ipfixlolib
+endef
 
+define Package/LInEx-mod-bzip2/install
+	$(INSTALL_DIR) $(1)/usr/lib/ipfixlolib
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ipfixlolib/libbzip2.so $(1)/usr/lib/ipfixlolib
+endef
+
+define Package/LInEx-mod-deflate/install
+	$(INSTALL_DIR) $(1)/usr/lib/ipfixlolib
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ipfixlolib/libdeflate.so $(1)/usr/lib/ipfixlolib
+endef
+
+$(eval $(call BuildPackage,LInEx))
+$(eval $(call BuildPackage,LInEx-mod-quicklz))
+$(eval $(call BuildPackage,LInEx-mod-bzip2))
+$(eval $(call BuildPackage,LInEx-mod-deflate))
