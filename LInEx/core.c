@@ -68,7 +68,7 @@ void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
 	aux_config.mtu = 1500;           /* MTU */
 	for(cur = conf->collectors->first;cur!=NULL;cur=cur->next){
 		collector_descriptor* cur_descriptor = (collector_descriptor*)cur->data;
-		int ret = ipfix_add_collector(exporter, cur_descriptor->ip, cur_descriptor->port, UDP, &aux_config);
+		int ret = ipfix_add_collector(exporter, cur_descriptor->ip, cur_descriptor->port, cur_descriptor->transport_protocol, &aux_config);
 		msg(MSG_INFO, "Added collector %s:%d (return: %d)", cur_descriptor->ip,cur_descriptor->port,  ret);
 	}
 }

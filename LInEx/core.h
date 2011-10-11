@@ -110,6 +110,7 @@ typedef struct{
 typedef struct{
 	char* ip;
 	uint16_t port;
+	enum ipfix_transport_protocol transport_protocol;
 } collector_descriptor;
 
 

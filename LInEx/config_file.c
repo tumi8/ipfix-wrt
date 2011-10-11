@@ -88,10 +88,11 @@ config_file_descriptor* create_config_file_descriptor(){
 
 
 //Constructor for collector descriptor
-collector_descriptor* create_collector_descriptor(char* ip, int port){
+collector_descriptor* create_collector_descriptor(char* ip, int port, enum ipfix_transport_protocol transport_protocol){
 	collector_descriptor* result = (collector_descriptor*) malloc(sizeof(collector_descriptor));
 	result->ip = ip;
 	result->port = port;
+	result->transport_protocol = transport_protocol;
 	list_insert(current_config_file->collectors, result);
 	return result;
 }
@@ -151,7 +152,7 @@ void init_config_regex(){
 	regcomp(&regex_source_selector,"^[ \t]*(FILE|COMMAND).*$",REG_EXTENDED);
 	regcomp(&regex_source_suffix,"^[ \t]*([A-Za-z0-9/_-]+|\"([^\"]*)\")[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*\"(.*)\"[ \t\n]*",REG_EXTENDED);
 	regcomp(&regex_rule,"^[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})[ \t\n]*$",REG_EXTENDED);
+	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})(\\s+(TCP|UDP|SCTP))?\\s*$",REG_EXTENDED);
 	regcomp(&regex_interval,"^[ \t]*INTERVAL[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interface,"^[ \t]*INTERFACE[ \t]+([A-Za-z0-9.-]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_compression,"^\\s*COMPRESSION\\s+(\\w+)(\\s+(.+))?\\s*",REG_EXTENDED);
@@ -354,13 +355,22 @@ int process_record_line(char* line, int in_line){
  * <in_line> is the number of that line
  */
 int process_collector_line(char* line, int in_line){
-	if(regexec(&regex_collector,line,3,config_buffer,0)){
+	if(regexec(&regex_collector,line,5,config_buffer,0)){
 		THROWEXCEPTION("COLLECTOR line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	char* ip = extract_string_from_regmatch(&config_buffer[1],line);
 	int port = extract_int_from_regmatch(&config_buffer[2],line);
-	create_collector_descriptor(ip,port);
+	char* transport_protocol_str = extract_string_from_regmatch(&config_buffer[4], line);
+	enum ipfix_transport_protocol transport_protocol = UDP;
+
+	if (!strcmp(transport_protocol_str, "TCP")) {
+		transport_protocol = TCP;
+	} else if (!strcmp(transport_protocol_str, "SCTP")) {
+		transport_protocol = SCTP;
+	}
+
+	create_collector_descriptor(ip,port,transport_protocol);
 	return 1;
 }
 
