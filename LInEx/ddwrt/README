@@ -1,0 +1,15 @@
+DD-WRT is supported as well the following procedure should help you get started on a WRT54G2:
+
+# Customizing
+1. Download a prebuilt image from https://github.com/constcast/ipfix-wrt/downloads
+2. In case you do not need to make changes flash it onto the router and continue with configuration
+3. Obtain firmware-mod-kit from http://code.google.com/p/firmware-mod-kit/
+4. Extract the image via ./extract-ng.sh image-name target-directory (if binwalk fails modify the script to add the -q parameter to binwalk)
+5. Make the changes needed (generally OpenWRT packages built for the mipsel-uclibc target should be comptabile)
+6. Rebuild image via ./build-ng target-directory
+7. Flash on router
+
+# Configuration
+1. Open web interface at http://192.168.1.1
+2. Configure IP of wireless interface in the Wireless tab and reboot router.
+3. Configure OLSR (Setup -> Advanced Routing): Don't forget to add an interface - in the case of a WRT54G2 the wifi interface is named eth1
