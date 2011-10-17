@@ -65,13 +65,14 @@ static int parse_packet_header_ipv6(struct pktinfo *pkt);
 
 void olsr_callback(int fd, struct capture_info *info);
 
-struct capture_info *olsr_add_capture_interface(const char *interface) {
+struct capture_info *olsr_add_capture_interface(struct capture_session *session,
+												const char *interface) {
 	struct sock_fprog filter = {
 		sizeof(olsr_filter) / sizeof(struct sock_filter),
 		olsr_filter
 	};
 
-	struct capture_info *info = start_capture(interface, 0, &filter);
+	struct capture_info *info = start_capture(session, interface, 2048, &filter);
 	if (!info)
 		return NULL;
 
@@ -175,7 +176,7 @@ int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol) {
         return -1;
     }
 
-    DPRINTF("Packet Info: Sequence Number %d, Size: %d", packet.seqno, packet.size);
+	// DPRINTF("Packet Info: Sequence Number %d, Size: %d", packet.seqno, packet.size);
 
     struct olsr_common message;
     while (pkt->data < pkt->end_data) {
@@ -183,7 +184,7 @@ int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol) {
             return -1;
         }
 
-        DPRINTF("Message Info: Type: %d Hops: %d Size: %d", message.type, message.hops, message.size);
+		// DPRINTF("Message Info: Type: %d Hops: %d Size: %d", message.type, message.hops, message.size);
 
         switch (message.type) {
         case HELLO_MESSAGE:

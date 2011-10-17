@@ -24,15 +24,15 @@
 #include <stdbool.h>
 #include <fcntl.h>
 
-static int parse_ipv4(capture_session *session, struct pktinfo *pkt);
+static int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt);
 #ifdef SUPPORT_IPV6
-static int parse_ipv6(capture_session *session, struct pktinfo *pkt);
+static int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt);
 #endif
-static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
-static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *flow);
+static int parse_udp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow);
+static int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow);
 
 struct flow_capture_callback_param {
-	capture_session *session;
+	flow_capture_session *session;
 	struct capture_info *info;
 };
 
@@ -64,13 +64,17 @@ static struct sock_filter ip_filter[] = {
     { 0x6, 0, 0, 0x00000000 },
 };
 
-int start_capture_session(capture_session *session, uint16_t export_timeout) {
+int start_flow_capture_session(flow_capture_session *session, uint16_t export_timeout) {
+	session->capture_session = start_capture_session();
+	if (!session->capture_session)
+		return -1;
+
     session->export_timeout = export_timeout;
 	session->ipv4_flow_database = kh_init(1);
 #ifdef SUPPORT_IPV6
 	session->ipv6_flow_database = kh_init(1);
 #endif
-	session->interface_count = 0;
+
     return 0;
 }
 
@@ -104,12 +108,7 @@ static struct sock_fprog build_filter(const struct sockaddr *hwaddr) {
 /**
   * Adds the given interface to the capture list.
   */
-int add_interface(capture_session *session, char *device_name, bool enable_promisc) {
-	if (session->interface_count >= MAXIMUM_INTERFACE_COUNT) {
-		msg(MSG_ERROR, "Maximum number of interfaces for this capture session has been reached.");
-		return -1;
-	}
-
+int add_interface(flow_capture_session *session, char *device_name, bool enable_promisc) {
 	struct ifreq req;
 	int fd = -1;
 
@@ -126,13 +125,11 @@ int add_interface(capture_session *session, char *device_name, bool enable_promi
 	close(fd);
 
 	struct sock_fprog filter = build_filter(&hwaddr);
-	struct capture_info *info = start_capture(device_name, 256, &filter);
+	struct capture_info *info = start_capture(session->capture_session,
+											  device_name, 256, &filter);
 	if (!info) {
 		return -1;
 	}
-
-	session->interfaces[session->interface_count] = info;
-	session->interface_count++;
 
 	struct flow_capture_callback_param *param =
 			(struct flow_capture_callback_param *) malloc(sizeof(struct flow_capture_callback_param));
@@ -166,13 +163,7 @@ static void free_flow_database(khash_t(1) *flow_database) {
   * Stops the given capture session. It is not possible to use this session from the
   * capture call afterwards.
   */
-void stop_capture_session(capture_session *session) {
-	int i;
-
-	for (i = 0; i < session->interface_count; i++) {
-		stop_capture(session->interfaces[i]);
-	}
-
+void stop_flow_capture_session(flow_capture_session *session) {
 	free_flow_database(session->ipv4_flow_database);
 	session->ipv4_flow_database = NULL;
 
@@ -183,12 +174,12 @@ void stop_capture_session(capture_session *session) {
 }
 
 
-static int parse_ethernet(capture_session *session, struct pktinfo *pkt) {
+static int parse_ethernet(flow_capture_session *session, struct pktinfo *pkt) {
     if (pkt->data + sizeof(struct ether_header) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid ethernet packet.");
         return -1;
     }
-	DPRINTF("Parsing ethernet header");
+	// DPRINTF("Parsing ethernet header");
 
     const struct ether_header * const hdr = (const struct ether_header * const) pkt->data;
 
@@ -229,7 +220,7 @@ static int parse_ip(capture_session *session, const struct pcap_pkthdr *const pk
 }
 */
 
-static int parse_ipv4(capture_session *session, struct pktinfo *pkt) {
+static int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt) {
     if (pkt->data + sizeof(struct iphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid IPv4 packet (by %t bytes).", (pkt->data + sizeof(struct iphdr) - pkt->end_data));
         return -1;
@@ -263,7 +254,7 @@ static int parse_ipv4(capture_session *session, struct pktinfo *pkt) {
 }
 
 #ifdef SUPPORT_IPV6
-static int parse_ipv6(capture_session *session, struct pktinfo *pkt) {
+static int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt) {
 	// No need to check the length - ipv6_extract_transport_protocol does that
 	// for us.
 	const struct ip6_hdr * const hdr = (const struct ip6_hdr * const) pkt->data;
@@ -289,7 +280,7 @@ static int parse_ipv6(capture_session *session, struct pktinfo *pkt) {
 }
 #endif
 
-static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *flow) {
+static int parse_udp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow) {
     if (pkt->data + sizeof(struct udphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
         return -1;
@@ -348,7 +339,7 @@ static int parse_udp(capture_session *session, struct pktinfo *pkt, flow_key *fl
     return 0;
 }
 
-static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *flow) {
+static int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow) {
     if (pkt->data + sizeof(struct tcphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
         return -1;
@@ -411,23 +402,6 @@ static int parse_tcp(capture_session *session, struct pktinfo *pkt, flow_key *fl
 	info->total_bytes += pkt->orig_len;
 
     return 0;
-}
-
-void statistics_callback(capture_session *session) {
-	size_t i;
-	struct tpacket_stats kstats;
-
-	for (i = 0; i < session->interface_count; i++) {
-		socklen_t kstats_len = sizeof(kstats);
-		if (getsockopt(session->interfaces[i]->fd, SOL_PACKET, PACKET_STATISTICS,
-					   &kstats, &kstats_len))
-			continue;
-
-		msg(MSG_ERROR, "Interface %d: Total pending: %d Lost: %d",
-			i,
-			kstats.tp_packets,
-			kstats.tp_drops);
-	}
 }
 
 void capture_callback(int fd, struct flow_capture_callback_param *param) {

@@ -7,6 +7,11 @@
 #define SUBTEMPLATE_MULTILIST_HDR_LEN (sizeof(uint16_t) + sizeof(uint16_t))
 #define SUBTEMPLATE_LIST_HDR_LEN (sizeof(uint16_t) + sizeof(uint8_t))
 
+enum CaptureStatisticsInterfaceType {
+	CaptureStatisticsFlowType=0,
+	CaptureStatisticsOLSRType=1
+};
+
 struct buffer_info {
 	uint8_t *pos;
 	uint8_t *const start;
@@ -87,6 +92,16 @@ struct olsr_template_info templates[] = {
 		{ 0 }
 	}
 },
+{ CaptureStatisticsTemplate,
+	(struct olsr_template_field []) {
+		{CaptureInterfaceType, ENTERPRISE_ID, sizeof(uint8_t)},
+		{CaptureInterfaceIndex, ENTERPRISE_ID, sizeof(uint8_t) },
+		{CaptureStatisticsTotalPackets, ENTERPRISE_ID, sizeof(uint32_t) },
+		{CaptureStatisticsDroppedPackets, ENTERPRISE_ID, sizeof(uint32_t) },
+		{CaptureStatisticsTimestamp, ENTERPRISE_ID, sizeof(uint32_t) },
+		{ 0 }
+	}
+},
 #ifdef SUPPORT_IPV6
 { NodeTemplateIPv6,
 	(struct olsr_template_field []) {
@@ -126,6 +141,7 @@ struct olsr_template_info templates[] = {
 #endif
 };
 
+#define CAPTURE_STATISTICS_TEMPLATE_LEN (2 * sizeof(uint8_t) + 3 * sizeof(uint32_t))
 #define FLOW_TEMPLATE_LEN (sizeof(uint8_t) + 2 * sizeof(uint16_t) + sizeof(uint64_t) + 2 * sizeof(uint32_t))
 #define FLOW_TEMPLATE_IPV4_LEN (FLOW_TEMPLATE_LEN + 2 * sizeof(uint32_t))
 #define FLOW_TEMPLATE_IPV6_LEN (FLOW_TEMPLATE_LEN + 2 * sizeof(struct in6_addr))
@@ -176,7 +192,7 @@ static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
 
 static void export_flow_database(khash_t(1) *flow_database,
 								 ipfix_exporter *exporter,
-								 capture_session *session,
+								 flow_capture_session *session,
 								 uint16_t template_id,
 								 size_t template_len);
 
@@ -552,7 +568,7 @@ void export_full(struct export_parameters *params) {
 }
 
 void export_flows(struct export_flow_parameter *param) {
-	capture_session *session = param->session;
+	flow_capture_session *session = param->session;
 	ipfix_exporter *exporter = param->exporter;
 
 	export_flow_database(session->ipv4_flow_database,
@@ -571,7 +587,7 @@ void export_flows(struct export_flow_parameter *param) {
 
 static void export_flow_database(khash_t(1) *flow_database,
 								 ipfix_exporter *exporter,
-								 capture_session *session,
+								 flow_capture_session *session,
 								 uint16_t template_id,
 								 size_t template_len) {
 	time_t now = time(NULL);
@@ -674,3 +690,79 @@ static void export_flow_database(khash_t(1) *flow_database,
 		}
 	}
 }
+
+
+static inline int export_capture_statistics_builder(uint8_t **buffer,
+									  const struct capture_info *info,
+									  enum CaptureStatisticsInterfaceType interfaceType,
+									  uint8_t interfaceIndex,
+									  const time_t *time) {
+
+	struct capture_statistics statistics;
+
+	if (capture_statistics(info, &statistics)) {
+		return -1;
+	}
+
+	pkt_put_u8(buffer, (uint8_t) interfaceType);
+	pkt_put_u8(buffer, interfaceIndex);
+	pkt_put_u32(buffer, statistics.total_captured);
+	pkt_put_u32(buffer, statistics.total_dropped);
+	pkt_put_u32(buffer, (uint32_t) *time);
+
+	return 0;
+}
+
+static inline size_t export_capture_statistics_session(ipfix_exporter *exporter,
+													   uint8_t **buffer,
+													   struct capture_session *session,
+													   enum CaptureStatisticsInterfaceType interfaceType,
+													   const time_t *time) {
+	size_t i;
+	for (i = 0; i < session->interface_count; i++) {
+		if (ipfix_get_remaining_space(exporter) < CAPTURE_STATISTICS_TEMPLATE_LEN)
+			return i;
+
+		struct capture_info *info = session->interfaces[i];
+		export_capture_statistics_builder(buffer, info,
+										  interfaceType, i,
+										  time);
+	}
+
+	return -1;
+}
+
+
+
+void export_capture_statistics(struct export_capture_parameter *param) {
+	time_t now = time(NULL);
+	uint8_t *buffer = message_buffer;
+
+	export_capture_statistics_session(param->exporter, &buffer,
+									  param->flow_session,
+									  CaptureStatisticsFlowType, &now);
+	export_capture_statistics_session(param->exporter, &buffer,
+									  param->olsr_session,
+									  CaptureStatisticsOLSRType, &now);
+
+	if (ipfix_start_data_set(param->exporter, htons(CaptureStatisticsTemplate))) {
+		msg(MSG_ERROR, "Failed to start capture statistics template.");
+		return;
+	}
+
+	if (ipfix_put_data_field(param->exporter, message_buffer, buffer - message_buffer)) {
+		msg(MSG_ERROR, "Failed to put data field.");
+		return;
+	}
+
+	if (ipfix_end_data_set(param->exporter, 1)) {
+		msg(MSG_ERROR, "Failed to end data set.");
+		return;
+	}
+
+	if (ipfix_send(param->exporter)) {
+		msg(MSG_ERROR, "Failed to transmit data set.");
+		return;
+	}
+}
+

@@ -15,7 +15,12 @@ enum olsr_ipfix_type {
 	NeighborHostIPv4Type=7, // ipv4Address
 	NeighborHostIPv6Type=8, // ipv6Address
 	NeighborLinkCodeType=9, // uint8
-	NeighborLQType=10 // uint32
+	NeighborLQType=10, // uint32
+	CaptureInterfaceType=11, // uint8 (0 = Flow, 1 = OLSR)
+	CaptureInterfaceIndex=12, // uint8
+	CaptureStatisticsTotalPackets=13, // uint32
+	CaptureStatisticsDroppedPackets=14, // uint32
+	CaptureStatisticsTimestamp=15 // dateTimeSeconds
 };
 
 enum olsr_template_id {
@@ -24,6 +29,7 @@ enum olsr_template_id {
 	TargetHostTemplateIPv4,
 	NeighborHostTemplateIPv4,
 	FlowTemplateIPv4,
+	CaptureStatisticsTemplate,
 #ifdef SUPPORT_IPV6
 	NodeTemplateIPv6,
 	TargetHostTemplateIPv6,
@@ -50,10 +56,17 @@ struct export_parameters {
 
 struct export_flow_parameter {
 	ipfix_exporter *exporter;
-	capture_session *session;
+	flow_capture_session *session;
+};
+
+struct export_capture_parameter {
+	ipfix_exporter *exporter;
+	struct capture_session *flow_session;
+	struct capture_session *olsr_session;
 };
 
 int declare_templates(ipfix_exporter *exporter);
 void export_full(struct export_parameters *params);
 void export_flows(struct export_flow_parameter *param);
+void export_capture_statistics(struct export_capture_parameter *param);
 #endif

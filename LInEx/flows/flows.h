@@ -12,9 +12,6 @@
 #include "capture.h"
 #include "olsr_protocol.h"
 
-// The maximum number of interfaces which can be added to one capture session
-#define MAXIMUM_INTERFACE_COUNT 1
-
 #ifndef ETHERTYPE_IPV6
 // Define it here as some platforms do not define it.
 #define ETHERTYPE_IPV6 0x86dd
@@ -35,7 +32,7 @@ int flow_key_equals(struct flow_key_t *a, struct flow_key_t *b);
 
 KHASH_INIT(1, struct flow_key_t *, struct flow_info_t *, 1, hash_code, hash_eq)
 
-typedef struct capture_session_t {
+typedef struct flow_capture_session_t {
     /**
 	  * Hash table containing the currently active IPv4 flows.
       */
@@ -64,14 +61,10 @@ typedef struct capture_session_t {
     uint16_t export_timeout;
 
 	/**
-	  * Total number of interfaces added to this session.
+	  * The associated capture session.
 	  */
-	size_t interface_count;
-	/**
-	  * Capture information for each interface added to this session.
-	  */
-	struct capture_info *interfaces[MAXIMUM_INTERFACE_COUNT];
-} capture_session;
+	struct capture_session *capture_session;
+} flow_capture_session;
 
 typedef struct flow_key_t {
     /**
@@ -122,10 +115,9 @@ typedef struct flow_info_t {
 	uint64_t total_bytes;
 } flow_info;
 
-int start_capture_session(capture_session *session, uint16_t export_timeout);
-void stop_capture_session(capture_session *session);
+int start_flow_capture_session(flow_capture_session *session, uint16_t export_timeout);
+void stop_flow_capture_session(flow_capture_session *session);
 
-void statistics_callback(capture_session *session);
-int add_interface(capture_session *session, char *device_name, bool enable_promisc);
+int add_interface(flow_capture_session *session, char *device_name, bool enable_promisc);
 
 #endif

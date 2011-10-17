@@ -170,9 +170,9 @@ int main(int argc, char **argv)
 	msg(MSG_DIALOG, "LInEx is up and running. Press Ctrl-C to exit.");
 
 	// Start capturing sessions
-	capture_session session;
+	flow_capture_session session;
 
-	if (start_capture_session(&session, 30))
+	if (start_flow_capture_session(&session, 30))
 		msg(MSG_ERROR, "Failed to start capture session.");
 	else {
 		struct lnode *node = conf->interfaces->first;
@@ -183,7 +183,21 @@ int main(int argc, char **argv)
 			if (add_interface(&session, interface, 1))
 				msg(MSG_ERROR, "Failed to add interface %s to capture session.", interface);
 
-			if (!olsr_add_capture_interface(interface))
+			node = node->next;
+		}
+	}
+
+	struct capture_session *olsr_capture_session = start_capture_session();
+	if (!olsr_capture_session) {
+		msg(MSG_ERROR, "Failed to start OLSR capture session.");
+	} else {
+		struct lnode *node = conf->interfaces->first;
+
+		while (node != NULL) {
+			char *interface = (char *) node->data;
+			DPRINTF("Adding interface %s to capture session.", interface);
+
+			if (!olsr_add_capture_interface(olsr_capture_session, interface))
 				msg(MSG_ERROR, "Failed to add OLSR capturing to interface %s.", interface);
 			node = node->next;
 		}
@@ -224,8 +238,13 @@ int main(int argc, char **argv)
 	struct export_record_parameters record_params = { send_exporter, conf, xmlfh };
 	event_loop_add_timer(conf->interval * 1000, (void (*)(void *)) &export_records, &record_params);
 
-	// Add timer to print interface statistics
-	event_loop_add_timer(10000, (void (*) (void *)) &statistics_callback, &session);
+	// Add timer to export capture statistics
+	struct export_capture_parameter capture_statistics_param = {
+		send_exporter,
+		session.capture_session,
+		olsr_capture_session
+	};
+	event_loop_add_timer(10000, (void (*) (void *)) &export_capture_statistics, &capture_statistics_param);
 
 	return event_loop_run();
 }

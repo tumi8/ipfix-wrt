@@ -36,6 +36,27 @@ static uint8_t *packet_buffer = 0;
 static size_t packet_buffer_size = 0;
 #endif
 
+struct capture_session *start_capture_session() {
+	struct capture_session *session =
+			(struct capture_session *) malloc (sizeof(struct capture_session));
+	if (!session)
+		return NULL;
+
+	session->interface_count = 0;
+
+	return session;
+}
+
+void free_capture_session(struct capture_session *session) {
+	size_t i;
+	for (i = 0; i < session->interface_count; i++) {
+		stop_capture(session->interfaces[i]);
+		free(session->interfaces[i]);
+	}
+
+	free(session);
+}
+
 /**
   * Starts capturing on the given interface. If a snapshot length is specified
   * (i.e. it is set to a value larger than 0) packets may be truncated to
@@ -44,8 +65,14 @@ static size_t packet_buffer_size = 0;
   * \return A capture_info struct containing a file descriptor which can be
   *         polled for incoming data or NULL if something went wrong.
   */
-struct capture_info *start_capture(const char *interface, size_t snapshot_len,
+struct capture_info *start_capture(struct capture_session *session,
+								   const char *interface, size_t snapshot_len,
 								   struct sock_fprog *filter) {
+	if (session->interface_count >= MAXIMUM_INTERFACE_COUNT) {
+		msg(MSG_ERROR, "Maximum interface count (%d) for this session has been reached.", MAXIMUM_INTERFACE_COUNT);
+		return NULL;
+	}
+
 	int index = 0, mtu = 0;
 
 	if (setup_interface(interface, true, &index, &mtu))
@@ -66,7 +93,6 @@ struct capture_info *start_capture(const char *interface, size_t snapshot_len,
 			(struct capture_info *) malloc (sizeof(struct capture_info));
 
 #ifdef SUPPORT_PACKET_MMAP
-	for (; (PAGE_SIZE % snapshot_len) != 0; snapshot_len++) {};
 	struct tpacket_req req = {
 		PAGE_SIZE, // tp_block_size
 		PACKET_MMAP_BLOCK_NR, // tp_block_nr:
@@ -152,6 +178,10 @@ struct capture_info *start_capture(const char *interface, size_t snapshot_len,
 #endif
 
 	info->fd = fd;
+
+	session->interfaces[session->interface_count] = info;
+	session->interface_count++;
+
 	return info;
 }
 
@@ -223,6 +253,26 @@ void capture_packet_done(struct capture_info *info) {
 	// Advance to next frame
 	info->current_frame_nr = (info->current_frame_nr + 1) % info->frame_nr;
 #endif
+}
+
+/**
+  * Collects statistics about current capture session which are stored into
+  * \a statistics.
+  *
+  * \returns 0 on success or -1 on failure.
+  */
+int capture_statistics(const struct capture_info *info, struct capture_statistics *statistics) {
+	struct tpacket_stats kstats;
+	socklen_t kstats_len = sizeof(kstats);
+	if (getsockopt(info->fd, SOL_PACKET, PACKET_STATISTICS,
+				   &kstats, &kstats_len)) {
+		return -1;
+	}
+
+	statistics->total_captured = kstats.tp_packets;
+	statistics->total_dropped = kstats.tp_drops;
+
+	return 0;
 }
 
 static int setup_interface(const char *device_name,
