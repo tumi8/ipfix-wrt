@@ -174,7 +174,7 @@ void stop_flow_capture_session(flow_capture_session *session) {
 }
 
 
-static int parse_ethernet(flow_capture_session *session, struct pktinfo *pkt) {
+static inline int parse_ethernet(flow_capture_session *session, struct pktinfo *pkt) {
     if (pkt->data + sizeof(struct ether_header) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid ethernet packet.");
         return -1;
@@ -220,7 +220,7 @@ static int parse_ip(capture_session *session, const struct pcap_pkthdr *const pk
 }
 */
 
-static int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt) {
+static inline int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt) {
     if (pkt->data + sizeof(struct iphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid IPv4 packet (by %t bytes).", (pkt->data + sizeof(struct iphdr) - pkt->end_data));
         return -1;
@@ -254,7 +254,7 @@ static int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt) {
 }
 
 #ifdef SUPPORT_IPV6
-static int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt) {
+static inline int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt) {
 	// No need to check the length - ipv6_extract_transport_protocol does that
 	// for us.
 	const struct ip6_hdr * const hdr = (const struct ip6_hdr * const) pkt->data;
@@ -280,7 +280,7 @@ static int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt) {
 }
 #endif
 
-static int parse_udp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow) {
+static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow) {
     if (pkt->data + sizeof(struct udphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
         return -1;
@@ -339,7 +339,7 @@ static int parse_udp(flow_capture_session *session, struct pktinfo *pkt, flow_ke
     return 0;
 }
 
-static int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow) {
+static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow) {
     if (pkt->data + sizeof(struct tcphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
         return -1;
