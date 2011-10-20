@@ -2153,7 +2153,7 @@ static int sctp_reconnect(ipfix_exporter *exporter , int i){
 	}
 	/* Make sure SCTP connection is in state ESTABLISHED */
 	if (ss.sstat_state != SCTP_ESTABLISHED) {
-	    msg(MSG_ERROR, "SCTP socket not in state ESTABLISHED");
+		msg(MSG_ERROR, "SCTP socket not in state ESTABLISHED");
 	    close(exporter->collector_arr[i].data_socket);
 	    exporter->collector_arr[i].data_socket = -1;
 	    exporter->collector_arr[i].state = C_DISCONNECTED;
@@ -3624,7 +3624,7 @@ int ipfix_init_compression(ipfix_exporter *exporter,
 		dlclose(exporter->compression_handle);
 		exporter->compression_handle = NULL;
 
-		msg(MSG_ERROR, ("Invalid compression library: %s", dlerror()));
+		msg(MSG_ERROR, "Invalid compression library: %s", dlerror());
 		return -1;
 	}
 
