@@ -20,7 +20,10 @@ enum olsr_ipfix_type {
 	CaptureInterfaceIndex=12, // uint8
 	CaptureStatisticsTotalPackets=13, // uint32
 	CaptureStatisticsDroppedPackets=14, // uint32
-	CaptureStatisticsTimestamp=15 // dateTimeSeconds
+	CaptureStatisticsTimestamp=15, // dateTimeSeconds
+	HNANetworkIPv4=16, // ipv4Address
+	HNANetworkPrefixLength=17, // uint8_t
+	HNANetworkIPv6=18 // ipv6Address
 };
 
 enum olsr_template_id {
@@ -30,11 +33,13 @@ enum olsr_template_id {
 	NeighborHostTemplateIPv4,
 	FlowTemplateIPv4,
 	CaptureStatisticsTemplate,
+	HNATemplateIPv4,
 #ifdef SUPPORT_IPV6
 	NodeTemplateIPv6,
 	TargetHostTemplateIPv6,
 	NeighborHostTemplateIPv6,
-	FlowTemplateIPv6
+	FlowTemplateIPv6,
+	HNATemplateIPv6
 #endif
 };
 

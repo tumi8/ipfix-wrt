@@ -1,6 +1,7 @@
 #include "node_set.h"
 #include "topology_set.h"
 #include "hello_set.h"
+#include "hna_set.h"
 
 /**
   * Checks whether the two IP addresses are the same.
@@ -61,6 +62,7 @@ struct node_entry *find_or_create_node_entry(node_set_hash *node_set,
 
 		node->hello_set = NULL;
 		node->topology_set = NULL;
+		node->hna_set = NULL;
 
 		int ret;
 		k = kh_put(2, node_set, *addr, &ret);
@@ -101,7 +103,17 @@ void expire_node_set_entries(node_set_hash *node_set) {
 			}
 		}
 
-		if (node->topology_set == NULL && node->hello_set == NULL) {
+		if (node->hna_set) {
+			expire_hna_set_entries(node->hna_set, now);
+			if (node->hna_set->first == NULL
+					&& node->hna_set->last == NULL) {
+				free(node->hna_set);
+				node->hna_set = NULL;
+			}
+		}
+
+		if (node->topology_set == NULL && node->hello_set == NULL
+				&& node->hna_set == NULL) {
 			free(node);
 			kh_del(2, node_set, k);
 		}

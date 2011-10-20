@@ -8,6 +8,7 @@
 struct node_entry {
 	struct topology_set *topology_set;
 	struct hello_set *hello_set;
+	struct hna_set *hna_set;
 };
 
 /**
