@@ -719,7 +719,8 @@ static void export_flow_database(khash_t(1) *flow_database,
 		flow_key *key = kh_key(flow_database, k);
 		flow_info *info = kh_value(flow_database, k);
 
-		if (now - info->last_packet_timestamp < session->export_timeout)
+		if ((now - info->last_packet_timestamp < session->export_timeout)
+				&& now - info->first_packet_timestamp > session->max_flow_lifetime)
 			continue;
 
 		kh_del(1, flow_database, k);

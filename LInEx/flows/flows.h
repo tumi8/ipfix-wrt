@@ -61,6 +61,16 @@ typedef struct flow_capture_session_t {
     uint16_t export_timeout;
 
 	/**
+	  * The maximum lifetime of a flow - flows which are older than the
+	  * specified time (in seconds) will be exported.
+	  *
+	  * Note: This is only an approximate value - the flow will be exported
+	  * the next time data is sent via IPFIX and not exactly when it reaches
+	  * the specified age.
+	  */
+	uint16_t max_flow_lifetime;
+
+	/**
 	  * The associated capture session.
 	  */
 	struct capture_session *capture_session;
@@ -115,7 +125,9 @@ typedef struct flow_info_t {
 	uint64_t total_bytes;
 } flow_info;
 
-int start_flow_capture_session(flow_capture_session *session, uint16_t export_timeout);
+int start_flow_capture_session(flow_capture_session *session,
+							   uint16_t export_timeout,
+							   uint16_t max_flow_lifetime);
 void stop_flow_capture_session(flow_capture_session *session);
 
 int add_interface(flow_capture_session *session, char *device_name, bool enable_promisc);

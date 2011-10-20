@@ -172,7 +172,7 @@ int main(int argc, char **argv)
 	// Start capturing sessions
 	flow_capture_session session;
 
-	if (start_flow_capture_session(&session, 30))
+	if (start_flow_capture_session(&session, 30, 120))
 		msg(MSG_ERROR, "Failed to start capture session.");
 	else {
 		struct lnode *node = conf->interfaces->first;
