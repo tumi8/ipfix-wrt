@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <net/if.h>
+#include <stdbool.h>
 
 #ifdef SUPPORT_PACKET_MMAP
 // TODO - Experiment which value fits best
@@ -16,6 +18,10 @@ struct capture_info {
 	  * The file descriptor of the socket.
 	  */
 	int fd;
+	/**
+	  * The name of the interface.
+	  */
+	char interface_name[IFNAMSIZ];
 #ifdef SUPPORT_PACKET_MMAP
 	/**
 	  * Total number of frames which the buffer can hold.
@@ -60,6 +66,10 @@ struct capture_statistics {
 struct sock_fprog;
 
 struct capture_session *start_capture_session();
+bool contains_interface(struct capture_session *session,
+						const char *interface_name);
+void remove_capture_interface(struct capture_session *session,
+							  struct capture_info *info);
 void free_capture_session(struct capture_session *session);
 struct capture_info *start_capture(struct capture_session *session,
 								   const char *interface, size_t snapshot_len,

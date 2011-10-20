@@ -37,6 +37,7 @@ struct flow_capture_callback_param {
 };
 
 void capture_callback(int fd, struct flow_capture_callback_param *param);
+void capture_error_callback(int fd, struct flow_capture_callback_param *param);
 
 /**
   * Compiled BPF filter: tcpdump -dd "not ether src de:ad:be:ef:aa:aa and (ip or ip6)"
@@ -140,7 +141,7 @@ int add_interface(flow_capture_session *session, char *device_name, bool enable_
 	param->session = session;
 	param->info = info;
 
-	event_loop_add_fd(info->fd, (void (*) (int, void *)) &capture_callback, param);
+	event_loop_add_fd(info->fd, (event_fd_callback) &capture_callback, (event_fd_error_callback) &capture_error_callback, param);
 
     return 0;
 }
@@ -419,6 +420,10 @@ void capture_callback(int fd, struct flow_capture_callback_param *param) {
 		capture_packet_done(param->info);
 	}
 
+}
+
+void capture_error_callback(int fd, struct flow_capture_callback_param *param) {
+	remove_capture_interface(param->session->capture_session, param->info);
 }
 
 static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {

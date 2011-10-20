@@ -47,6 +47,39 @@ struct capture_session *start_capture_session() {
 	return session;
 }
 
+bool contains_interface(struct capture_session *session,
+						const char *interface_name) {
+	size_t index;
+
+	for (index = 0; index < session->interface_count; index++) {
+		if (strcmp(session->interfaces[index]->interface_name, interface_name) == 0)
+			return 1;
+	}
+
+	return 0;
+}
+
+void remove_capture_interface(struct capture_session *session,
+							  struct capture_info *info) {
+	size_t index;
+
+	for (index = 0; index < session->interface_count; index++) {
+		if (session->interfaces[index] == info)
+			break;
+	}
+
+	if (session->interfaces[index] != info)
+		return;
+
+	stop_capture(session->interfaces[index]);
+
+	session->interface_count--;
+
+	memmove(session->interfaces,
+			session->interfaces + index + 1,
+			session->interface_count - index);
+}
+
 void free_capture_session(struct capture_session *session) {
 	size_t i;
 	for (i = 0; i < session->interface_count; i++) {
@@ -178,6 +211,8 @@ struct capture_info *start_capture(struct capture_session *session,
 #endif
 
 	info->fd = fd;
+	strncpy(info->interface_name, interface, sizeof(info->interface_name));
+	info->interface_name[sizeof(info->interface_name) - 1] = 0;
 
 	session->interfaces[session->interface_count] = info;
 	session->interface_count++;

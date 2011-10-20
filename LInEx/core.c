@@ -48,6 +48,7 @@ struct export_record_parameters {
 };
 
 void export_records(struct export_record_parameters *params);
+void bind_to_interfaces(config_file_descriptor *conf);
 
 regex_t param_regex;
 regex_t long_param_regex;
@@ -56,6 +57,8 @@ char* config_file = NULL;
 pid_t childpid = -1;
 extern node_set_hash *node_set;
 
+flow_capture_session flow_session;
+struct capture_session *olsr_capture_session = NULL;
 /**
  * Takes all collectors from config file <conf>
  * and adds them to the exporter <exporter>
@@ -170,41 +173,22 @@ int main(int argc, char **argv)
 	msg(MSG_DIALOG, "LInEx is up and running. Press Ctrl-C to exit.");
 
 	// Start capturing sessions
-	flow_capture_session session;
 
-	if (start_flow_capture_session(&session, 30, 120))
+
+	if (start_flow_capture_session(&flow_session, 30, 120))
 		msg(MSG_ERROR, "Failed to start capture session.");
-	else {
-		struct lnode *node = conf->interfaces->first;
 
-		while (node != NULL) {
-			char *interface = (char *) node->data;
-			DPRINTF("Adding interface %s to capture session.", interface);
-			if (add_interface(&session, interface, 1))
-				msg(MSG_ERROR, "Failed to add interface %s to capture session.", interface);
-
-			node = node->next;
-		}
-	}
-
-	struct capture_session *olsr_capture_session = start_capture_session();
-	if (!olsr_capture_session) {
+	olsr_capture_session = start_capture_session();
+	if (!olsr_capture_session)
 		msg(MSG_ERROR, "Failed to start OLSR capture session.");
-	} else {
-		struct lnode *node = conf->interfaces->first;
 
-		while (node != NULL) {
-			char *interface = (char *) node->data;
-			DPRINTF("Adding interface %s to capture session.", interface);
 
-			if (!olsr_add_capture_interface(olsr_capture_session, interface))
-				msg(MSG_ERROR, "Failed to add OLSR capturing to interface %s.", interface);
-			node = node->next;
-		}
-	}
+	bind_to_interfaces(conf);
+	// Register timer to readd interfaces in case they go down
+	event_loop_add_timer(120000, (event_timer_callback) &bind_to_interfaces, conf);
 
 #ifdef SUPPORT_ANONYMIZATION
-	if (init_cryptopan(&session.cryptopan,
+	if (init_cryptopan(&flow_session.cryptopan,
 					   conf->anonymization_key,
 					   conf->anonymization_pad)) {
 		msg(MSG_ERROR, "Failed to initialize CryptoPAN.");
@@ -231,7 +215,7 @@ int main(int argc, char **argv)
 	event_loop_add_timer(20000, (void (*)(void *)) &export_full, &params);
 
 	// Add timer to export flows
-	struct export_flow_parameter flow_param = { send_exporter, &session };
+	struct export_flow_parameter flow_param = { send_exporter, &flow_session };
 	event_loop_add_timer(5000, (void (*)(void *)) &export_flows, &flow_param);
 
 	// Add timer to export records
@@ -241,7 +225,7 @@ int main(int argc, char **argv)
 	// Add timer to export capture statistics
 	struct export_capture_parameter capture_statistics_param = {
 		send_exporter,
-		session.capture_session,
+		flow_session.capture_session,
 		olsr_capture_session
 	};
 	event_loop_add_timer(10000, (void (*) (void *)) &export_capture_statistics, &capture_statistics_param);
@@ -290,5 +274,46 @@ void export_records(struct export_record_parameters *params) {
 
 }
 
+void bind_to_interfaces(config_file_descriptor *conf) {
+	if (flow_session.capture_session) {
+		struct lnode *node = conf->interfaces->first;
 
+		while (node != NULL) {
+			char *interface = (char *) node->data;
+			if (contains_interface(flow_session.capture_session, interface)) {
+				node = node->next;
+				continue;
+			}
+
+			DPRINTF("Adding interface %s to capture session.", interface);
+			if (add_interface(&flow_session, interface, 1))
+				msg(MSG_ERROR, "Failed to add interface %s to capture session.", interface);
+			else
+				DPRINTF("Capturing flows on %s", interface);
+
+			node = node->next;
+		}
+	}
+
+
+	if (olsr_capture_session) {
+		struct lnode *node = conf->interfaces->first;
+
+		while (node != NULL) {
+			char *interface = (char *) node->data;
+			if (contains_interface(olsr_capture_session, interface)) {
+				node = node->next;
+				continue;
+			}
+
+			DPRINTF("Adding interface %s to capture session.", interface);
+
+			if (!olsr_add_capture_interface(olsr_capture_session, interface))
+				msg(MSG_ERROR, "Failed to add OLSR capturing to interface %s.", interface);
+			else
+				DPRINTF("Capturing OLSR information on %s", interface);
+			node = node->next;
+		}
+	}
+}
 

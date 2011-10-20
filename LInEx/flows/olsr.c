@@ -67,7 +67,13 @@ static int parse_packet_header_ipv4(struct pktinfo *pkt);
 static int parse_packet_header_ipv6(struct pktinfo *pkt);
 #endif
 
-void olsr_callback(int fd, struct capture_info *info);
+struct olsr_callback_param {
+	struct capture_session *session;
+	struct capture_info *info;
+};
+
+void olsr_callback(int fd, struct olsr_callback_param *info);
+void olsr_error_callback(int fd, struct olsr_callback_param *info);
 
 struct capture_info *olsr_add_capture_interface(struct capture_session *session,
 												const char *interface) {
@@ -80,23 +86,35 @@ struct capture_info *olsr_add_capture_interface(struct capture_session *session,
 	if (!info)
 		return NULL;
 
-	event_loop_add_fd(info->fd, (void (*) (int, void *)) &olsr_callback, info);
+	struct olsr_callback_param *param =
+			(struct olsr_callback_param *) malloc (sizeof(struct olsr_callback_param));
+
+	param->session = session;
+	param->info = info;
+
+	event_loop_add_fd(info->fd, (event_fd_callback) &olsr_callback,
+					  (event_fd_error_callback) &olsr_error_callback, param);
 
 	return info;
 }
 
-void olsr_callback(int fd, struct capture_info *info) {
+void olsr_callback(int fd, struct olsr_callback_param *param) {
 	size_t len;
 	size_t orig_len;
 	uint8_t *buffer;
 
-	while ((buffer = capture_packet(info, &len, &orig_len))) {
+	while ((buffer = capture_packet(param->info, &len, &orig_len))) {
 		struct pktinfo pkt = { buffer, buffer + len, buffer, orig_len };
 
 		parse_packet_header(&pkt);
 
-		capture_packet_done(info);
+		capture_packet_done(param->info);
 	}
+}
+
+void olsr_error_callback(int fd, struct olsr_callback_param *param) {
+	remove_capture_interface(param->session, param->info);
+	free(param);
 }
 
 static int parse_packet_header(struct pktinfo *pkt) {

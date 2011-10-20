@@ -33,6 +33,7 @@ struct dynamic_array {
 struct event_loop_fd_entry {
 	int fd;
 	event_fd_callback callback;
+	event_fd_error_callback error_callback;
 	void *user_param;
 };
 
@@ -88,9 +89,10 @@ static int array_remove_item(struct dynamic_array *array, uint32_t index) {
 
 	array->size--;
 
-	if (index != array->size) {
-		memmove(array->buffer + (index * array->item_size), array->buffer + ((index + 1) * array->item_size), array->item_size * (array->size - index));
-	}
+
+	memmove(array->buffer + (index * array->item_size),
+			array->buffer + ((index + 1) * array->item_size),
+			array->item_size * (array->size - index));
 
 	if (array->space - array->size >= 4) {
 		char *new_buffer = realloc(array->buffer, array->item_size * array->size);
@@ -110,8 +112,12 @@ static void add_time(const struct timeval *source, struct timeval *dest, uint32_
 	dest->tv_usec %= 100000;
 }
 
-int event_loop_add_fd(int fd, event_fd_callback callback, void *user_param) {
-	struct event_loop_fd_entry *fd_entry = (struct event_loop_fd_entry *) array_alloc_new_item(&global_event_loop.fd_entries);
+int event_loop_add_fd(int fd,
+					  event_fd_callback callback,
+					  event_fd_error_callback error_callback,
+					  void *user_param) {
+	struct event_loop_fd_entry *fd_entry =
+			(struct event_loop_fd_entry *) array_alloc_new_item(&global_event_loop.fd_entries);
 
 	if (fd_entry == NULL)
 		return -1;
@@ -122,7 +128,8 @@ int event_loop_add_fd(int fd, event_fd_callback callback, void *user_param) {
 		if (global_event_loop.fds == NULL)
 			return -1;
 	} else {
-		struct pollfd *fds = (struct pollfd *) realloc(global_event_loop.fds, sizeof(struct pollfd) * (global_event_loop.fd_entries.size));
+		struct pollfd *fds =
+				(struct pollfd *) realloc(global_event_loop.fds, sizeof(struct pollfd) * (global_event_loop.fd_entries.size));
 
 		if (fds == NULL)
 			return -1;
@@ -132,6 +139,7 @@ int event_loop_add_fd(int fd, event_fd_callback callback, void *user_param) {
 
 	fd_entry->fd = fd;
 	fd_entry->callback = callback;
+	fd_entry->error_callback = error_callback;
 	fd_entry->user_param = user_param;
 
 	struct pollfd *poll_fd = (global_event_loop.fds + global_event_loop.fd_entries.size - 1);
@@ -177,11 +185,29 @@ int event_loop_run() {
 			size_t i;
 
 			for (i = 0; i < global_event_loop.fd_entries.size; i++) {
-				struct event_loop_fd_entry *fd_entry = ((struct event_loop_fd_entry *) global_event_loop.fd_entries.buffer) + i;
+				struct event_loop_fd_entry *fd_entry =
+						((struct event_loop_fd_entry *) global_event_loop.fd_entries.buffer) + i;
 				struct pollfd *fd = global_event_loop.fds + i;
 
+				// DPRINTF("%d", fd->revents);
 				if (fd->revents & POLLIN)
 					(*fd_entry->callback)(fd_entry->fd, fd_entry->user_param);
+				else if (fd->revents & (POLLERR | POLLHUP | POLLNVAL)) {
+					if (fd_entry->error_callback)
+						(*fd_entry->error_callback)(fd_entry->fd, fd_entry->user_param);
+
+					// Remove from event loop
+					array_remove_item(&global_event_loop.fd_entries, i);
+
+					// Remove from pollfd list
+					memmove(global_event_loop.fds + i,
+							global_event_loop.fds + i + 1,
+							global_event_loop.fd_entries.size - i);
+					global_event_loop.fds =
+							(struct pollfd *) realloc(global_event_loop.fds,
+													  sizeof(struct pollfd) * (global_event_loop.fd_entries.size));
+					i--;
+				}
 			}
 		}
 
