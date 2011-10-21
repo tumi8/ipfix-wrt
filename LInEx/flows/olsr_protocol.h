@@ -34,6 +34,8 @@
     (((s1 > s2) && (s1 - s2 <= (MAXVALUE/2))) \
     || ((s2 > s1) && (s2 - s1 > (MAXVALUE/2))))
 
+#define TC_INTERVAL 5
+
 enum olsr_message_type {
     HELLO_MESSAGE=1,
     TC_MESSAGE=2,

@@ -316,6 +316,17 @@ static int olsr_handle_tc_message(const u_char **data,
 		}
     }
 
+	// Update old TC entries to expire within TC_INTERVAL if we have received
+	// updated information (see RFC 3626 - 9.3)
+	ts_entry = ts->first;
+
+	while (ts_entry) {
+		if (SEQNO_GREATER_THAN(message->ansn, ts_entry->seq))
+			ts_entry->common.vtime = now + TC_INTERVAL;
+
+		ts_entry = ts_entry->next;
+	}
+
     return 0;
 }
 
