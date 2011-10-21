@@ -2,6 +2,7 @@
 #include "topology_set.h"
 #include "hello_set.h"
 #include "hna_set.h"
+#include "mid_set.h"
 #include "../ipfixlolib/msg.h"
 #include "../ipfixlolib/ipfix.h"
 
@@ -54,6 +55,13 @@ struct export_status {
    * which should be exported.
    */
 	struct hna_set_entry *hna_set_entry;
+	/**
+   * The MID set entry of the host which still needs to be exported.
+   *
+   * This value should be NULL if there are no more MID set entries
+   * which should be exported.
+   */
+	struct mid_set_entry *mid_set_entry;
 };
 
 static u_char message_buffer[IPFIX_MAX_PACKETSIZE];
@@ -118,6 +126,12 @@ struct olsr_template_info templates[] = {
 		{ 0 }
 	}
 },
+{ MIDTemplateIPv4,
+	(struct olsr_template_field []) {
+		{MIDAddressIPv4, ENTERPRISE_ID, sizeof(uint32_t)},
+		{ 0 }
+	}
+},
 #ifdef SUPPORT_IPV6
 { NodeTemplateIPv6,
 	(struct olsr_template_field []) {
@@ -156,8 +170,14 @@ struct olsr_template_info templates[] = {
 },
 { HNATemplateIPv6,
 	(struct olsr_template_field []) {
-		{HNANetworkIPv6, ENTERPRISE_ID, sizeof(uint32_t)},
+		{HNANetworkIPv6, ENTERPRISE_ID, sizeof(struct in6_addr)},
 		{HNANetworkPrefixLength, ENTERPRISE_ID, sizeof(uint8_t) },
+		{ 0 }
+	}
+},
+{ MIDTemplateIPv6,
+	(struct olsr_template_field []) {
+		{MIDAddressIPv6, ENTERPRISE_ID, sizeof(struct in6_addr)},
 		{ 0 }
 	}
 },
@@ -222,6 +242,18 @@ static size_t hna_network_list_len(const struct ip_addr_t *addr,
 									 const struct hna_set *hna_set);
 static size_t hna_network_list_encode(const struct ip_addr_t *addr,
 										const struct hna_set *hna_set,
+										struct buffer_info *buffer,
+										struct export_status *status);
+
+static size_t mid_len(const struct mid_set *hs);
+static size_t mid_encode(const struct mid_set *hs,
+								   const struct mid_set_entry *entry,
+								   struct buffer_info *buffer);
+
+static size_t mid_list_len(const struct ip_addr_t *addr,
+									 const struct mid_set *mid_set);
+static size_t mid_list_encode(const struct ip_addr_t *addr,
+										const struct mid_set *mid_set,
 										struct buffer_info *buffer,
 										struct export_status *status);
 
@@ -433,6 +465,73 @@ static size_t hna_network_list_encode(const struct ip_addr_t *addr,
 	return (buffer->pos - buffer_start);
 }
 
+static size_t mid_len(const struct mid_set *hs) {
+	return ip_addr_len(hs->protocol);
+}
+
+static size_t mid_encode(const struct mid_set *mid_set,
+								   const struct mid_set_entry *entry,
+								   struct buffer_info *buffer) {
+	uint8_t *const start = buffer->pos;
+
+	pkt_put_ipaddress(&buffer->pos, &entry->addr, mid_set->protocol);
+
+	return (buffer->pos - start);
+}
+
+static size_t mid_list_len(const struct ip_addr_t *addr,
+									 const struct mid_set *mid_set) {
+	if (!mid_set)
+		return 0;
+
+	return SUBTEMPLATE_MULTILIST_HDR_LEN;
+}
+
+static size_t mid_list_encode(const struct ip_addr_t *addr,
+										const struct mid_set *mid_set,
+										struct buffer_info *buffer,
+										struct export_status *status) {
+	if (!mid_set)
+		return 0;
+
+	uint8_t *const buffer_start = buffer->pos;
+
+	switch(addr->protocol) {
+	case IPv4:
+		pkt_put_u16(&buffer->pos, MIDTemplateIPv4);
+		break;
+#ifdef SUPPORT_IPV6
+	case IPv6:
+		pkt_put_u16(&buffer->pos, MIDTemplateIPv6);
+		break;
+#endif
+	default:
+		THROWEXCEPTION("Invalid address type %d", addr->protocol);
+		break;
+	}
+
+	uint8_t *list_length = buffer->pos;
+	pkt_put_u16(&buffer->pos, 0);
+
+	uint8_t *const list_begin = buffer->pos;
+	// Add topology set entries
+	if (status->mid_set_entry == NULL)
+		status->mid_set_entry = mid_set->first;
+
+	while (status->mid_set_entry != NULL) {
+		if (buffer->pos + mid_len(mid_set) > buffer->end)
+			break;
+
+		mid_encode(mid_set, status->mid_set_entry, buffer);
+
+		status->mid_set_entry = status->mid_set_entry->next;
+	}
+	// Put the length of the written data
+	pkt_put_u16(&list_length, (uint16_t) (buffer->pos - list_begin));
+
+	return (buffer->pos - buffer_start);
+}
+
 static size_t base_encode(uint16_t sequence_number,
 						  const node_set_hash *node_set,
 						  struct buffer_info *buffer,
@@ -497,6 +596,7 @@ static size_t node_list_encode(network_protocol proto,
 		status->ts_entry = NULL;
 		status->hs_entry = NULL;
 		status->hna_set_entry = NULL;
+		status->mid_set_entry = NULL;
 	}
 
 	return (buffer->pos - buffer_start);
@@ -515,6 +615,7 @@ static size_t node_len(const struct ip_addr_t *addr,
 	len += target_host_list_len(addr, node->topology_set);
 	len += neighbor_host_list_len(addr, node->hello_set);
 	len += hna_network_list_len(addr, node->hna_set);
+	len += mid_list_len(addr, node->mid_set);
 
 	return len;
 }
@@ -530,7 +631,8 @@ static size_t node_encode(const struct ip_addr_t *addr,
 	uint8_t *len_ptr = pkt_put_variable_length(&buffer->pos);
 
 	size_t list_len = sizeof(uint8_t);
-	uint8_t export_all = !status->ts_entry && !status->hs_entry && !status->hna_set_entry;
+	uint8_t export_all = !status->ts_entry && !status->hs_entry
+			&& !status->hna_set_entry && !status->mid_set_entry;
 
 	pkt_put_u8(&buffer->pos, 0x3); // allOf semantics for subTemplateMultiList
 
@@ -555,6 +657,13 @@ static size_t node_encode(const struct ip_addr_t *addr,
 											node->hna_set,
 											buffer,
 											status);
+	}
+
+	if (status->mid_set_entry || export_all) {
+		list_len += mid_list_encode(addr,
+									node->mid_set,
+									buffer,
+									status);
 	}
 
 	pkt_put_u16(&len_ptr, list_len);
@@ -653,6 +762,7 @@ void export_full(struct export_parameters *params) {
 	status.ts_entry = NULL;
 	status.hs_entry = NULL;
 	status.hna_set_entry = NULL;
+	status.mid_set_entry = NULL;
 	status.current_entry = kh_begin(node_set);
 
 	while (status.current_entry != kh_end(node_set)) {

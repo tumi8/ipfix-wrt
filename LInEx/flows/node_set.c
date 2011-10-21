@@ -63,6 +63,7 @@ struct node_entry *find_or_create_node_entry(node_set_hash *node_set,
 		node->hello_set = NULL;
 		node->topology_set = NULL;
 		node->hna_set = NULL;
+		node->mid_set = NULL;
 
 		int ret;
 		k = kh_put(2, node_set, *addr, &ret);

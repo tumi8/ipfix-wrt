@@ -2,6 +2,7 @@
 #include "topology_set.h"
 #include "hello_set.h"
 #include "hna_set.h"
+#include "mid_set.h"
 #include "olsr_protocol.h"
 #include "capture.h"
 #include "ip_helper.h"
@@ -57,6 +58,9 @@ static int olsr_handle_tc_message(const u_char **data,
 								  struct olsr_tc_message *message,
 								  network_protocol protocol);
 static int olsr_handle_hna_message(const uint8_t **data,
+								   struct olsr_common *hdr,
+								   network_protocol protocol);
+static int olsr_handle_mid_message(const uint8_t **data,
 								   struct olsr_common *hdr,
 								   network_protocol protocol);
 int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol);
@@ -228,6 +232,10 @@ int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol) {
 				return -1;
 			break;
 		}
+		case MID_MESSAGE:
+			if (olsr_handle_mid_message(&pkt->data, &message, protocol))
+				return -1;
+			break;
         default:
             // Unsupported message type - ignore it
             break;
@@ -488,6 +496,30 @@ static int olsr_handle_hna_message(const uint8_t **data,
 
 		struct hna_set_entry *entry =
 				find_or_create_hna_set_entry(hs, &network, prefix_len);
+		entry->vtime = now + hdr->vtime / 10e3;
+	}
+
+	return 0;
+}
+
+
+static int olsr_handle_mid_message(const uint8_t **data,
+								   struct olsr_common *hdr,
+								   network_protocol protocol) {
+	uint16_t network_len = ip_addr_len(protocol);
+	time_t now = time(NULL);
+	union olsr_ip_addr addr;
+
+	struct ip_addr_t orig = { protocol, hdr->orig };
+	struct mid_set *mid_set = find_or_create_mid_set(node_set,
+													 &orig);
+
+
+	while (*data + (2 * network_len) <= hdr->end) {
+		pkt_get_ip_address(data, &addr, protocol);
+
+		struct mid_set_entry *entry =
+				find_or_create_mid_set_entry(mid_set, &addr);
 		entry->vtime = now + hdr->vtime / 10e3;
 	}
 

@@ -37,6 +37,7 @@
 enum olsr_message_type {
     HELLO_MESSAGE=1,
     TC_MESSAGE=2,
+	MID_MESSAGE=3,
 	HNA_MESSAGE=4,
     HELLO_LQ_MESSAGE=201,
 	TC_LQ_MESSAGE=202,

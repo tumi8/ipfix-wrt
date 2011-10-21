@@ -47,6 +47,7 @@ ADD_EXECUTABLE(LInEx
 	flows/hello_set.c
 	flows/hna_set.c
 	flows/node_set.c
+	flows/mid_set.c
 	flows/export.c
 	flows/olsr_protocol.h
 	flows/capture.c
