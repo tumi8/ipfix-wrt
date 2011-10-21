@@ -9,7 +9,6 @@ struct mid_set *find_or_create_mid_set(node_set_hash *node_set,
 		// Create new entry
 		struct mid_set *mid_set = (struct mid_set *) malloc(sizeof(struct mid_set));
 		mid_set->first = mid_set->last = NULL;
-		mid_set->protocol = addr->protocol;
 
 		node_entry->mid_set = mid_set;
 	}
@@ -18,11 +17,12 @@ struct mid_set *find_or_create_mid_set(node_set_hash *node_set,
 }
 
 struct mid_set_entry *find_or_create_mid_set_entry(struct mid_set *hs,
-												   union olsr_ip_addr *addr) {
+												   union olsr_ip_addr *addr,
+												   network_protocol protocol) {
 	struct mid_set_entry *mid_set_entry = hs->first;
 
 	while (mid_set_entry != NULL) {
-		if (hs->protocol == IPv4) {
+		if (protocol == IPv4) {
 			if (mid_set_entry->addr.v4.s_addr == addr->v4.s_addr)
 				break;
 		} else {
@@ -42,6 +42,7 @@ struct mid_set_entry *find_or_create_mid_set_entry(struct mid_set *hs,
 		if (mid_set_entry == NULL)
 			return NULL;
 
+		init_set_entry_common(&mid_set_entry->common);
 		mid_set_entry->addr = *addr;
 
 		if (hs->last != NULL)
@@ -79,7 +80,7 @@ void expire_mid_set_entries(struct mid_set *set, time_t now) {
 	struct mid_set_entry *previous_entry = NULL;
 
 	while (entry != NULL) {
-		if (entry->vtime < now) {
+		if (entry->common.vtime < now) {
 			entry = mid_set_remove_entry(set, entry, previous_entry);
 		} else {
 			previous_entry = entry;

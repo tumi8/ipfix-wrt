@@ -3,6 +3,13 @@
 #include "hello_set.h"
 #include "hna_set.h"
 
+inline void init_set_entry_common(struct set_entry_common *common) {
+	common->vtime = 0;
+	common->created = 1;
+	common->changed = 0;
+	common->expired = 0;
+}
+
 /**
   * Checks whether the two IP addresses are the same.
   *

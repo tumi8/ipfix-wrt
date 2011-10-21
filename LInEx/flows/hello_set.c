@@ -16,7 +16,6 @@ struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
 		// Create new entry
 		struct hello_set *hs = (struct hello_set *) malloc(sizeof(struct hello_set));
 		hs->first = hs->last = NULL;
-		hs->protocol = addr->protocol;
 
 		node_entry->hello_set = hs;
 	}
@@ -33,11 +32,12 @@ struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
   * if the dynamic memory allocation failed.
   */
 struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs,
-													   union olsr_ip_addr *addr) {
+													   union olsr_ip_addr *addr,
+													   network_protocol protocol) {
 	struct hello_set_entry *hs_entry = hs->first;
 
 	while (hs_entry != NULL) {
-		if (hs->protocol == IPv4) {
+		if (protocol == IPv4) {
 			if (hs_entry->neighbor_addr.v4.s_addr == addr->v4.s_addr)
 				break;
 		} else {
@@ -56,6 +56,8 @@ struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs,
 
 		if (hs_entry == NULL)
 			return NULL;
+
+		init_set_entry_common(&hs_entry->common);
 
 		hs_entry->neighbor_addr = *addr;
 		if (hs->last != NULL)
@@ -97,7 +99,7 @@ void expire_hello_set_entries(struct hello_set *set, time_t now) {
 	struct hello_set_entry *previous_entry = NULL;
 
 	while (entry != NULL) {
-		if (entry->vtime < now) {
+		if (entry->common.vtime < now) {
 			entry = hello_set_remove_entry(set, entry, previous_entry);
 		} else {
 			previous_entry = entry;

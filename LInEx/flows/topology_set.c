@@ -15,8 +15,7 @@ struct topology_set *find_or_create_topology_set(node_set_hash *node_set,
 	if (!node->topology_set) {
 		struct topology_set *ts =
 				(struct topology_set *) malloc(sizeof(struct topology_set));
-		ts->first = ts->last = NULL;
-		ts->protocol = addr->protocol;
+		ts->first = NULL;
 
 		node->topology_set = ts;
 	}
@@ -32,11 +31,13 @@ struct topology_set *find_or_create_topology_set(node_set_hash *node_set,
   * Returns a reference to the topology set entry (which may be newly created) or NULL
   * if the dynamic memory allocation failed.
   */
-struct topology_set_entry *find_or_create_topology_set_entry(struct topology_set *ts, union olsr_ip_addr *addr) {
+struct topology_set_entry *find_or_create_topology_set_entry(struct topology_set *ts,
+															 union olsr_ip_addr *addr,
+															 network_protocol protocol) {
 	struct topology_set_entry *ts_entry = ts->first;
 
 	while (ts_entry != NULL) {
-		if (ts->protocol == IPv4) {
+		if (protocol == IPv4) {
 			if (ts_entry->dest_addr.v4.s_addr == addr->v4.s_addr)
 				break;
 		} else {
@@ -55,6 +56,8 @@ struct topology_set_entry *find_or_create_topology_set_entry(struct topology_set
 
 		if (ts_entry == NULL)
 			return NULL;
+
+		init_set_entry_common(&ts_entry->common);
 
 		ts_entry->dest_addr = *addr;
 		if (ts->last != NULL)
@@ -97,7 +100,7 @@ void expire_topology_set_entries(struct topology_set *ts, time_t now) {
 	struct topology_set_entry *previous_entry = NULL;
 
 	while (entry != NULL) {
-		if (entry->time < now) {
+		if (entry->common.vtime < now) {
 			entry = topology_set_remove_entry(ts, entry, previous_entry);
 		} else {
 			previous_entry = entry;

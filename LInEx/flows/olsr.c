@@ -290,12 +290,14 @@ static int olsr_handle_tc_message(const u_char **data,
         ts_entry = ts_entry->next;
     }
 
+	time_t now = time(NULL);
+
     while (*data < message->comm.end) {
 		union olsr_ip_addr addr;
 
 		pkt_get_ip_address(data, &addr, protocol);
 
-		ts_entry = find_or_create_topology_set_entry(ts, &addr);
+		ts_entry = find_or_create_topology_set_entry(ts, &addr, protocol);
 		if (ts_entry == NULL) {
 			msg(MSG_ERROR, "Failed to allocate memory for topology set entry.");
 
@@ -303,7 +305,7 @@ static int olsr_handle_tc_message(const u_char **data,
 		}
 
 		ts_entry->seq = message->ansn;
-		ts_entry->time = time(NULL) + message->comm.vtime / 10e3;
+		ts_entry->common.vtime = now + message->comm.vtime / 10e3;
 
         if (message->comm.type == TC_LQ_MESSAGE) {
 			// The LQ value depends on the utilized LQ plugin hence we read the whole 32 bits here so they can
@@ -374,7 +376,10 @@ static int olsr_handle_hello_message(const u_char **data,
 
 			pkt_get_ip_address(data, &addr, protocol);
 
-			struct hello_set_entry *hs_entry = find_or_create_hello_set_entry(hs, &addr);
+			struct hello_set_entry *hs_entry =
+					find_or_create_hello_set_entry(hs,
+												   &addr,
+												   protocol);
 
 			if (hs_entry == NULL) {
 				msg(MSG_ERROR, "Failed to allocate memory for hello_set_entry.");
@@ -382,7 +387,7 @@ static int olsr_handle_hello_message(const u_char **data,
 			}
 
 			hs_entry->link_code = info.link_code.val;
-			hs_entry->vtime = now + message->comm.vtime / 10e3;
+			hs_entry->common.vtime = now + message->comm.vtime / 10e3;
 
 			if (message->comm.type == HELLO_LQ_MESSAGE) {
 				pkt_get_u32(data, &hs_entry->lq_parameters);
@@ -495,8 +500,8 @@ static int olsr_handle_hna_message(const uint8_t **data,
 		}
 
 		struct hna_set_entry *entry =
-				find_or_create_hna_set_entry(hs, &network, prefix_len);
-		entry->vtime = now + hdr->vtime / 10e3;
+				find_or_create_hna_set_entry(hs, &network, protocol, prefix_len);
+		entry->common.vtime = now + hdr->vtime / 10e3;
 	}
 
 	return 0;
@@ -519,8 +524,8 @@ static int olsr_handle_mid_message(const uint8_t **data,
 		pkt_get_ip_address(data, &addr, protocol);
 
 		struct mid_set_entry *entry =
-				find_or_create_mid_set_entry(mid_set, &addr);
-		entry->vtime = now + hdr->vtime / 10e3;
+				find_or_create_mid_set_entry(mid_set, &addr, protocol);
+		entry->common.vtime = now + hdr->vtime / 10e3;
 	}
 
 	return 0;

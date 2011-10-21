@@ -9,7 +9,6 @@ struct hna_set *find_or_create_hna_set(node_set_hash *node_set,
 		// Create new entry
 		struct hna_set *hs = (struct hna_set *) malloc(sizeof(struct hna_set));
 		hs->first = hs->last = NULL;
-		hs->protocol = addr->protocol;
 
 		node_entry->hna_set = hs;
 	}
@@ -18,11 +17,13 @@ struct hna_set *find_or_create_hna_set(node_set_hash *node_set,
 }
 
 struct hna_set_entry *find_or_create_hna_set_entry(struct hna_set *hs,
-												   union olsr_ip_addr *addr, uint8_t netmask) {
+												   union olsr_ip_addr *addr,
+												   network_protocol protocol,
+												   uint8_t netmask) {
 	struct hna_set_entry *hs_entry = hs->first;
 
 	while (hs_entry != NULL) {
-		if (hs->protocol == IPv4) {
+		if (protocol == IPv4) {
 			if (hs_entry->network.v4.s_addr == addr->v4.s_addr
 					&& hs_entry->netmask == netmask)
 				break;
@@ -43,6 +44,8 @@ struct hna_set_entry *find_or_create_hna_set_entry(struct hna_set *hs,
 
 		if (hs_entry == NULL)
 			return NULL;
+
+		init_set_entry_common(&hs_entry->common);
 
 		hs_entry->network = *addr;
 		hs_entry->netmask = netmask;
@@ -82,7 +85,7 @@ void expire_hna_set_entries(struct hna_set *set, time_t now) {
 	struct hna_set_entry *previous_entry = NULL;
 
 	while (entry != NULL) {
-		if (entry->vtime < now) {
+		if (entry->common.vtime < now) {
 			entry = hna_set_remove_entry(set, entry, previous_entry);
 		} else {
 			previous_entry = entry;

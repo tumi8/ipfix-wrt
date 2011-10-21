@@ -189,9 +189,9 @@ struct olsr_template_info templates[] = {
 #define FLOW_TEMPLATE_IPV4_LEN (FLOW_TEMPLATE_LEN + 2 * sizeof(uint32_t))
 #define FLOW_TEMPLATE_IPV6_LEN (FLOW_TEMPLATE_LEN + 2 * sizeof(struct in6_addr))
 
-static size_t target_host_len(const struct topology_set *ts);
-static void target_host_encode(const struct topology_set *ts,
-							   const struct topology_set_entry *entry,
+static size_t target_host_len(network_protocol protocol);
+static void target_host_encode(const struct topology_set_entry *entry,
+							   network_protocol protocol,
 							   struct buffer_info *buffer);
 
 static size_t target_host_list_len(const struct ip_addr_t *addr,
@@ -221,9 +221,9 @@ static size_t base_encode(uint16_t sequence_number,
 						  struct export_status *status);
 
 
-static size_t neighbor_host_len(const struct hello_set *hs);
-static size_t neighbor_host_encode(const struct hello_set *hs,
-								   const struct hello_set_entry *entry,
+static size_t neighbor_host_len(network_protocol protocol);
+static size_t neighbor_host_encode(const struct hello_set_entry *entry,
+								   network_protocol protocol,
 								   struct buffer_info *buffer);
 
 static size_t neighbor_host_list_len(const struct ip_addr_t *addr,
@@ -233,22 +233,22 @@ static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
 										struct buffer_info *buffer,
 										struct export_status *status);
 
-static size_t hna_network_len(const struct hna_set *hs);
-static size_t hna_network_encode(const struct hna_set *hs,
-								   const struct hna_set_entry *entry,
-								   struct buffer_info *buffer);
+static size_t hna_network_len(network_protocol protocol);
+static size_t hna_network_encode(const struct hna_set_entry *entry,
+								 network_protocol protocol,
+								 struct buffer_info *buffer);
 
 static size_t hna_network_list_len(const struct ip_addr_t *addr,
-									 const struct hna_set *hna_set);
+								   const struct hna_set *hna_set);
 static size_t hna_network_list_encode(const struct ip_addr_t *addr,
-										const struct hna_set *hna_set,
-										struct buffer_info *buffer,
-										struct export_status *status);
+									  const struct hna_set *hna_set,
+									  struct buffer_info *buffer,
+									  struct export_status *status);
 
-static size_t mid_len(const struct mid_set *hs);
-static size_t mid_encode(const struct mid_set *hs,
-								   const struct mid_set_entry *entry,
-								   struct buffer_info *buffer);
+static size_t mid_len(network_protocol protocol);
+static size_t mid_encode(const struct mid_set_entry *entry,
+						 network_protocol protocol,
+						 struct buffer_info *buffer);
 
 static size_t mid_list_len(const struct ip_addr_t *addr,
 									 const struct mid_set *mid_set);
@@ -328,16 +328,16 @@ int declare_templates(ipfix_exporter *exporter) {
 	return 0;
 }
 
-static size_t neighbor_host_len(const struct hello_set *hs) {
-	return ip_addr_len(hs->protocol) + sizeof(uint8_t) + sizeof(uint32_t);
+static size_t neighbor_host_len(network_protocol protocol) {
+	return ip_addr_len(protocol) + sizeof(uint8_t) + sizeof(uint32_t);
 }
 
-static size_t neighbor_host_encode(const struct hello_set *hs,
-								   const struct hello_set_entry *entry,
+static size_t neighbor_host_encode(const struct hello_set_entry *entry,
+								   network_protocol protocol,
 								   struct buffer_info *buffer) {
 	uint8_t *const start = buffer->pos;
 
-	pkt_put_ipaddress(&buffer->pos, &entry->neighbor_addr, hs->protocol);
+	pkt_put_ipaddress(&buffer->pos, &entry->neighbor_addr, protocol);
 	pkt_put_u8(&buffer->pos, entry->link_code);
 	pkt_put_u32(&buffer->pos, entry->lq_parameters);
 
@@ -384,10 +384,10 @@ static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
 		status->hs_entry = neighbor_set->first;
 
 	while (status->hs_entry != NULL) {
-		if (buffer->pos + neighbor_host_len(neighbor_set) > buffer->end)
+		if (buffer->pos + neighbor_host_len(addr->protocol) > buffer->end)
 			break;
 
-		neighbor_host_encode(neighbor_set, status->hs_entry, buffer);
+		neighbor_host_encode(status->hs_entry, addr->protocol, buffer);
 
 		status->hs_entry = status->hs_entry->next;
 	}
@@ -397,16 +397,16 @@ static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
 	return (buffer->pos - buffer_start);
 }
 
-static size_t hna_network_len(const struct hna_set *hs) {
-	return ip_addr_len(hs->protocol) + sizeof(uint8_t);
+static size_t hna_network_len(network_protocol protocol) {
+	return ip_addr_len(protocol) + sizeof(uint8_t);
 }
 
-static size_t hna_network_encode(const struct hna_set *hs,
-								   const struct hna_set_entry *entry,
-								   struct buffer_info *buffer) {
+static size_t hna_network_encode(const struct hna_set_entry *entry,
+								 network_protocol protocol,
+								 struct buffer_info *buffer) {
 	uint8_t *const start = buffer->pos;
 
-	pkt_put_ipaddress(&buffer->pos, &entry->network, hs->protocol);
+	pkt_put_ipaddress(&buffer->pos, &entry->network, protocol);
 	pkt_put_u8(&buffer->pos, entry->netmask);
 
 	return (buffer->pos - start);
@@ -452,10 +452,10 @@ static size_t hna_network_list_encode(const struct ip_addr_t *addr,
 		status->hna_set_entry = hna_set->first;
 
 	while (status->hna_set_entry != NULL) {
-		if (buffer->pos + hna_network_len(hna_set) > buffer->end)
+		if (buffer->pos + hna_network_len(addr->protocol) > buffer->end)
 			break;
 
-		hna_network_encode(hna_set, status->hna_set_entry, buffer);
+		hna_network_encode(status->hna_set_entry, addr->protocol, buffer);
 
 		status->hna_set_entry = status->hna_set_entry->next;
 	}
@@ -465,16 +465,16 @@ static size_t hna_network_list_encode(const struct ip_addr_t *addr,
 	return (buffer->pos - buffer_start);
 }
 
-static size_t mid_len(const struct mid_set *hs) {
-	return ip_addr_len(hs->protocol);
+static size_t mid_len(network_protocol protocol) {
+	return ip_addr_len(protocol);
 }
 
-static size_t mid_encode(const struct mid_set *mid_set,
-								   const struct mid_set_entry *entry,
-								   struct buffer_info *buffer) {
+static size_t mid_encode(const struct mid_set_entry *entry,
+						 network_protocol protocol,
+						 struct buffer_info *buffer) {
 	uint8_t *const start = buffer->pos;
 
-	pkt_put_ipaddress(&buffer->pos, &entry->addr, mid_set->protocol);
+	pkt_put_ipaddress(&buffer->pos, &entry->addr, protocol);
 
 	return (buffer->pos - start);
 }
@@ -519,10 +519,10 @@ static size_t mid_list_encode(const struct ip_addr_t *addr,
 		status->mid_set_entry = mid_set->first;
 
 	while (status->mid_set_entry != NULL) {
-		if (buffer->pos + mid_len(mid_set) > buffer->end)
+		if (buffer->pos + mid_len(addr->protocol) > buffer->end)
 			break;
 
-		mid_encode(mid_set, status->mid_set_entry, buffer);
+		mid_encode(status->mid_set_entry, addr->protocol, buffer);
 
 		status->mid_set_entry = status->mid_set_entry->next;
 	}
@@ -715,10 +715,10 @@ static size_t target_host_list_encode(const struct ip_addr_t *addr,
 		status->ts_entry = ts->first;
 
 	while (status->ts_entry != NULL) {
-		if (buffer->pos + target_host_len(ts) > buffer->end)
+		if (buffer->pos + target_host_len(addr->protocol) > buffer->end)
 			break;
 
-		target_host_encode(ts, status->ts_entry, buffer);
+		target_host_encode(status->ts_entry, addr->protocol, buffer);
 
 		status->ts_entry = status->ts_entry->next;
 	}
@@ -731,14 +731,14 @@ static size_t target_host_list_encode(const struct ip_addr_t *addr,
 /**
   * Returns the minium size of a target host data record.
   */
-static size_t target_host_len(const struct topology_set *ts) {
-	return sizeof(uint16_t) + ip_addr_len(ts->protocol);
+static size_t target_host_len(network_protocol protocol) {
+	return sizeof(uint16_t) + ip_addr_len(protocol);
 }
 
-static void target_host_encode(const struct topology_set *ts,
-							   const struct topology_set_entry *entry,
+static void target_host_encode(const struct topology_set_entry *entry,
+							   network_protocol protocol,
 							   struct buffer_info *buffer) {
-	pkt_put_ipaddress(&buffer->pos, &entry->dest_addr, ts->protocol);
+	pkt_put_ipaddress(&buffer->pos, &entry->dest_addr, protocol);
 	pkt_put_u16(&buffer->pos, entry->seq);
 }
 

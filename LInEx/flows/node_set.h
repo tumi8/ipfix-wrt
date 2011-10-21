@@ -12,6 +12,15 @@ struct node_entry {
 	struct mid_set *mid_set;
 };
 
+struct set_entry_common {
+	time_t vtime;
+	bool created:1;
+	bool changed:1;
+	bool expired:1;
+};
+
+inline void init_set_entry_common(struct set_entry_common *common);
+
 /**
   * Hashing functions for IP addresses
   */

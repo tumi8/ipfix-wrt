@@ -7,16 +7,15 @@
 #include "node_set.h"
 
 struct hna_set_entry {
+	struct set_entry_common common;
+
 	union olsr_ip_addr network;
 	uint8_t netmask;
-	time_t vtime;
 
 	struct hna_set_entry *next;
 };
 
 struct hna_set {
-	network_protocol protocol;
-
 	struct hna_set_entry *first;
 	struct hna_set_entry *last;
 };
@@ -24,7 +23,9 @@ struct hna_set {
 struct hna_set *find_or_create_hna_set(node_set_hash *node_set,
 									   struct ip_addr_t *addr);
 struct hna_set_entry *find_or_create_hna_set_entry(struct hna_set *hs,
-												   union olsr_ip_addr *addr, uint8_t netmask);
+												   union olsr_ip_addr *addr,
+												   network_protocol protocol,
+												   uint8_t netmask);
 
 void expire_hna_set_entries(struct hna_set *set, time_t now);
 
