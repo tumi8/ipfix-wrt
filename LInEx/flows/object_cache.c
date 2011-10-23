@@ -103,7 +103,6 @@ void release_object(struct object_cache *cache, void *obj) {
 		return;
 	}
 
-	DPRINTF("Storing used memory at: %p", obj);
 	*entry = obj;
 	cache->first_free_entry =
 			(cache->first_free_entry + 1) % cache->max_entries;
