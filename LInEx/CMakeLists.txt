@@ -53,6 +53,7 @@ ADD_EXECUTABLE(LInEx
 	flows/capture.c
 	flows/iface.c
 	flows/ip_helper.c
+	flows/object_cache.c
 )
 
 

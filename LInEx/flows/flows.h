@@ -74,6 +74,16 @@ typedef struct flow_capture_session_t {
 	  * The associated capture session.
 	  */
 	struct capture_session *capture_session;
+
+	/**
+	  * Object cache for flow keys.
+	  */
+	struct object_cache *flow_key_cache;
+
+	/**
+	  * Object cache for flow info data structures.
+	  */
+	struct object_cache *flow_info_cache;
 } flow_capture_session;
 
 typedef struct flow_key_t {

@@ -2,6 +2,7 @@
 #include "../ipfixlolib/msg.h"
 #include "iface.h"
 #include "ip_helper.h"
+#include "object_cache.h"
 
 #include "../event_loop.h"
 
@@ -68,18 +69,54 @@ static struct sock_filter ip_filter[] = {
 int start_flow_capture_session(flow_capture_session *session,
 							   uint16_t export_timeout,
 							   uint16_t max_flow_lifetime) {
+	session->ipv4_flow_database = NULL;
+#ifdef SUPPORT_IPV6
+	session->ipv6_flow_database = NULL;
+#endif
+	session->capture_session = NULL;
+	session->flow_key_cache = NULL;
+	session->flow_info_cache = NULL;
+
+	session->ipv4_flow_database = kh_init(1);
+	if (!session->ipv4_flow_database)
+		goto error;
+
+#ifdef SUPPORT_IPV6
+	session->ipv6_flow_database = kh_init(1);
+	if (!session->ipv6_flow_database)
+		goto error;
+#endif
+	session->flow_key_cache = init_object_cache(128, sizeof(struct flow_key_t));
+	if (!session->flow_key_cache)
+		goto error;
+	session->flow_info_cache = init_object_cache(128, sizeof(struct flow_info_t));
+	if (!session->flow_info_cache)
+		goto error;
+
 	session->capture_session = start_capture_session();
 	if (!session->capture_session)
-		return -1;
+		goto error;
 
     session->export_timeout = export_timeout;
 	session->max_flow_lifetime = max_flow_lifetime;
-	session->ipv4_flow_database = kh_init(1);
-#ifdef SUPPORT_IPV6
-	session->ipv6_flow_database = kh_init(1);
-#endif
 
     return 0;
+
+error:
+	if (session->ipv4_flow_database)
+		kh_destroy(1, session->ipv4_flow_database);
+#ifdef SUPPORT_IPV6
+	if (session->ipv6_flow_database)
+		kh_destroy(1, session->ipv6_flow_database);
+#endif
+	if (session->flow_key_cache)
+		free_object_cache(session->flow_key_cache);
+	if (session->flow_info_cache)
+		free_object_cache(session->flow_info_cache);
+	if (session->capture_session)
+		free_capture_session(session->capture_session);
+
+	return -1;
 }
 
 
@@ -175,6 +212,9 @@ void stop_flow_capture_session(flow_capture_session *session) {
 	free_flow_database(session->ipv6_flow_database);
 	session->ipv6_flow_database = NULL;
 #endif
+
+	free_object_cache(session->flow_key_cache);
+	free_object_cache(session->flow_info_cache);
 }
 
 
@@ -318,18 +358,20 @@ static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, 
 	if (k == kh_end(flow_database)) {
         int ret;
 
-		info = (flow_info *) calloc(1, sizeof(flow_info));
+		info = (flow_info *) allocate_object(session->flow_info_cache);
         if (info == NULL) {
             msg(MSG_ERROR, "Failed to allocate memory for flow info structure.");
             return -1;
         }
 
+
+		info->first_packet_timestamp = time(NULL);
+		info->total_bytes = 0;
+
 		// Create a copy of the key on the heap on the first insertion
 		flow_key *old_flow = flow;
-		flow = (flow_key *) malloc (sizeof(flow_key));
+		flow = (flow_key *) allocate_object(session->flow_key_cache);
 		memcpy(flow, old_flow, sizeof(flow_key));
-
-        info->first_packet_timestamp = time(NULL);
 
 		k = kh_put(1, flow_database, flow, &ret);
 		kh_value(flow_database, k) = info;
@@ -380,7 +422,7 @@ static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, 
             return -1;
         }
 
-        info = (flow_info *) calloc(1, sizeof(flow_info));
+		info = (flow_info *) allocate_object(session->flow_info_cache);
 
         if (info == NULL) {
             msg(MSG_ERROR, "Failed to allocate memory for flow info structure.");
@@ -388,10 +430,11 @@ static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, 
         }
 
         info->first_packet_timestamp = time(NULL);
+		info->total_bytes = 0;
 
 		// Create a copy of the key on the heap on the first insertion
 		flow_key *old_flow = flow;
-		flow = (flow_key *) malloc (sizeof(flow_key));
+		flow = (flow_key *) allocate_object(session->flow_key_cache);
 		memcpy(flow, old_flow, sizeof(flow_key));
 
 		k = kh_put(1, flow_database, flow, &ret);

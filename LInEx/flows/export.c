@@ -3,6 +3,7 @@
 #include "hello_set.h"
 #include "hna_set.h"
 #include "mid_set.h"
+#include "object_cache.h"
 #include "../ipfixlolib/msg.h"
 #include "../ipfixlolib/ipfix.h"
 
@@ -795,6 +796,7 @@ void export_full(struct export_parameters *params) {
 }
 
 void export_flows(struct export_flow_parameter *param) {
+	DPRINTF("Exporting flows");
 	flow_capture_session *session = param->session;
 	ipfix_exporter *exporter = param->exporter;
 
@@ -809,6 +811,10 @@ void export_flows(struct export_flow_parameter *param) {
 						 session,
 						 FlowTemplateIPv6,
 						 FLOW_TEMPLATE_IPV6_LEN);
+#endif
+#ifdef DEBUG
+	object_cache_statistics(session->flow_key_cache);
+	object_cache_statistics(session->flow_info_cache);
 #endif
 }
 
@@ -895,8 +901,8 @@ static void export_flow_database(khash_t(1) *flow_database,
 		pkt_put_u32(&buffer, info->first_packet_timestamp);
 		pkt_put_u32(&buffer, info->last_packet_timestamp);
 
-		free(key);
-		free(info);
+		release_object(session->flow_key_cache, key);
+		release_object(session->flow_info_cache, info);
 	}
 
 	if (buffer != NULL && buffer != message_buffer) {
