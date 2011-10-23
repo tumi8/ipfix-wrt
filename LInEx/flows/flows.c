@@ -68,7 +68,8 @@ static struct sock_filter ip_filter[] = {
 
 int start_flow_capture_session(flow_capture_session *session,
 							   uint16_t export_timeout,
-							   uint16_t max_flow_lifetime) {
+							   uint16_t max_flow_lifetime,
+							   uint16_t object_cache_size) {
 	session->ipv4_flow_database = NULL;
 #ifdef SUPPORT_IPV6
 	session->ipv6_flow_database = NULL;

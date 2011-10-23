@@ -137,7 +137,8 @@ typedef struct flow_info_t {
 
 int start_flow_capture_session(flow_capture_session *session,
 							   uint16_t export_timeout,
-							   uint16_t max_flow_lifetime);
+							   uint16_t max_flow_lifetime,
+							   uint16_t object_cache_size);
 void stop_flow_capture_session(flow_capture_session *session);
 
 int add_interface(flow_capture_session *session, char *device_name, bool enable_promisc);

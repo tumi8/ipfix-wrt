@@ -98,6 +98,9 @@ typedef struct{
 	char* xmlpostprocessing;
 	char* compression_method;
 	char* compression_method_params;
+	uint16_t flow_export_timeout;
+	uint16_t flow_max_lifetime;
+	uint16_t flow_object_cache_size;
 #ifdef SUPPORT_ANONYMIZATION
 	uint8_t anonymization_key[16];
 	uint8_t anonymization_pad[16];

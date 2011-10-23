@@ -175,7 +175,10 @@ int main(int argc, char **argv)
 	// Start capturing sessions
 
 
-	if (start_flow_capture_session(&flow_session, 30, 120))
+	if (start_flow_capture_session(&flow_session,
+								   conf->flow_export_timeout,
+								   conf->flow_max_lifetime,
+								   conf->flow_object_cache_size))
 		msg(MSG_ERROR, "Failed to start capture session.");
 
 	olsr_capture_session = start_capture_session();

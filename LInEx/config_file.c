@@ -53,6 +53,7 @@ regex_t regex_collector;
 regex_t regex_interval;
 regex_t regex_interface;
 regex_t regex_compression;
+regex_t regex_flow_params;
 regex_t regex_anonymization;
 regex_t regex_odid;
 regex_t regex_xmlfile;
@@ -76,6 +77,9 @@ config_file_descriptor* create_config_file_descriptor(){
 	current_config_file->interfaces = list_create();
 	current_config_file->compression_method = NULL;
 	current_config_file->compression_method_params = NULL;
+	current_config_file->flow_export_timeout = 5;
+	current_config_file->flow_max_lifetime = 120;
+	current_config_file->flow_object_cache_size = 64;
 #ifdef SUPPORT_ANONYMIZATION
 	memset(current_config_file->anonymization_key, 0, sizeof(current_config_file->anonymization_key));
 	memset(current_config_file->anonymization_pad, 0, sizeof(current_config_file->anonymization_pad));
@@ -158,6 +162,8 @@ void init_config_regex(){
 	regcomp(&regex_interval,"^[ \t]*INTERVAL[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interface,"^[ \t]*INTERFACE[ \t]+([A-Za-z0-9.-]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_compression,"^[ \t]*COMPRESSION[ \t]+([A-Za-z0-9.-]+)([ \t]+(.+))?[ \t\n]*$",REG_EXTENDED);
+	// Parameters for flow generation - FLOW_PARAMS <inactivity timeout> <maximum capture length> <object buffer length>
+	regcomp(&regex_flow_params, "^[ \t]*FLOW_PARAMS[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 #ifdef SUPPORT_ANONYMIZATION
 	regcomp(&regex_anonymization,"^[ \t]*ANONYMIZATION[ \t]+([A-Fa-f0-9]+)[ \t]+([A-Fa-f0-9]+)[ \t\n]*$", REG_EXTENDED);
 #endif
@@ -180,6 +186,7 @@ void deinit_config_regex() {
 	regfree(&regex_interval);
 	regfree(&regex_interface);
 	regfree(&regex_compression);
+	regfree(&regex_flow_params);
 #ifdef SUPPORT_ANONYMIZATION
 	regfree(&regex_anonymization);
 #endif
@@ -421,6 +428,23 @@ int process_compression_line(char* line, int in_line){
 	return 1;
 }
 
+/**
+ * Processes the compression line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
+int process_flow_params_line(char* line, int in_line){
+	if(regexec(&regex_flow_params,line,4,config_buffer,0)){
+		THROWEXCEPTION("FLOW_PARAMS line %d in config file is malformed:\n%s",in_line,line);
+	}
+
+	current_config_file->flow_export_timeout = extract_int_from_regmatch(&config_buffer[1], line);
+	current_config_file->flow_max_lifetime = extract_int_from_regmatch(&config_buffer[2], line);
+	current_config_file->flow_object_cache_size = extract_int_from_regmatch(&config_buffer[3], line);
+
+	return 1;
+}
+
 #ifdef SUPPORT_ANONYMIZATION
 void read_hex_string(char *input, uint8_t *dst, size_t dst_len) {
 	char *c = input + strlen(input);
@@ -590,7 +614,9 @@ int process_config_line(char* line, int in_line){
 				process_interval_line(line, in_line);
 			} else if(!regexec(&regex_compression,line,2,config_buffer,0)) {
 				process_compression_line(line, in_line);
-			} else if (!regexec(&regex_interface,line,2,config_buffer,0)) {
+			} else if(!regexec(&regex_flow_params,line,4,config_buffer,0)) {
+				process_flow_params_line(line, in_line);
+			} else if(!regexec(&regex_interface,line,2,config_buffer,0)) {
 				process_interface_line(line, in_line);
 #ifdef SUPPORT_ANONYMIZATION
 			} else if (!regexec(&regex_anonymization,line,2,config_buffer,0)) {
