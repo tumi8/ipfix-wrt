@@ -70,7 +70,7 @@ static u_char message_buffer[IPFIX_MAX_PACKETSIZE];
 struct olsr_template_info templates[] = {
 { BaseTemplate,
 	(struct olsr_template_field []) {
-		{SequenceNumberType, ENTERPRISE_ID, sizeof(uint16_t)},
+		{ExportTimestamp, ENTERPRISE_ID, sizeof(uint32_t)},
 		{ 292, 0, 0xffff },
 		{ 0 }
 	}
@@ -216,7 +216,7 @@ static size_t node_list_encode(network_protocol proto,
 							   struct buffer_info *buffer,
 							   struct export_status *status);
 
-static size_t base_encode(uint16_t sequence_number,
+static size_t base_encode(time_t timestamp,
 						  const node_set_hash *node_set,
 						  struct buffer_info *buffer,
 						  struct export_status *status);
@@ -533,13 +533,13 @@ static size_t mid_list_encode(const struct ip_addr_t *addr,
 	return (buffer->pos - buffer_start);
 }
 
-static size_t base_encode(uint16_t sequence_number,
+static size_t base_encode(time_t timestamp,
 						  const node_set_hash *node_set,
 						  struct buffer_info *buffer,
 						  struct export_status *status) {
 	uint8_t *const buffer_start = buffer->pos;
 
-	pkt_put_u16(&buffer->pos, sequence_number);
+	pkt_put_u32(&buffer->pos, timestamp);
 
 	uint8_t *len_ptr = pkt_put_variable_length(&buffer->pos);
 	size_t len = node_list_encode(IPv4, node_set, buffer, status);
@@ -759,12 +759,14 @@ void export_full(struct export_parameters *params) {
 	expire_node_set_entries(node_set);
 
 	struct export_status status;
+	time_t timestamp = time(NULL);
 
 	status.ts_entry = NULL;
 	status.hs_entry = NULL;
 	status.hna_set_entry = NULL;
 	status.mid_set_entry = NULL;
 	status.current_entry = kh_begin(node_set);
+
 
 	while (status.current_entry != kh_end(node_set)) {
 		if (ipfix_start_data_set(exporter, htons(BaseTemplate))) {
@@ -774,7 +776,7 @@ void export_full(struct export_parameters *params) {
 		}
 
 		struct buffer_info info = { message_buffer, message_buffer, message_buffer + ipfix_get_remaining_space(exporter) };
-		size_t buffer_len = base_encode(0, node_set, &info, &status);
+		size_t buffer_len = base_encode(timestamp, node_set, &info, &status);
 
 		DPRINTF("Status at %p %p %d %d", status.ts_entry, status.hs_entry, status.current_entry, kh_end(node_set));
 

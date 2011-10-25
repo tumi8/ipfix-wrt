@@ -6,7 +6,7 @@
 
 #define ENTERPRISE_ID 8889
 enum olsr_ipfix_type {
-    SequenceNumberType=1, // uint16
+	ExportTimestamp=1, // dateTimeSeconds
 	NodeAddressIPv4Type=2, // ipv4Address
 	NodeAddressIPv6Type=3, // ipv6Address
 	OLSRSequenceNumberType=4, // uint16
