@@ -146,8 +146,22 @@ static const double __ac_HASH_UPPER = 0.77;
 				if (i == last) return h->n_buckets;						\
 			}															\
 			return __ac_iseither(h->flags, i)? h->n_buckets : i;			\
-		} else return 0;												\
+                } else return 0;												\
 	}																	\
+        static inline khint_t kh_get_hash_code_##name(kh_##name##_t *h, khkey_t key, uint32_t hash_code)	\
+        {																	\
+                if (h->n_buckets) {												\
+                        khint_t inc, k, i, last;									\
+                        k = hash_code; i = k % h->n_buckets;					\
+                        inc = 1 + k % (h->n_buckets - 1); last = i;					\
+                        while (!__ac_isempty(h->flags, i) && (__ac_isdel(h->flags, i) || !__hash_equal(h->keys[i], key))) { \
+                                if (i + inc >= h->n_buckets) i = i + inc - h->n_buckets; \
+                                else i += inc;											\
+                                if (i == last) return h->n_buckets;						\
+                        }															\
+                        return __ac_iseither(h->flags, i)? h->n_buckets : i;			\
+                } else return 0;												\
+        } \
 	static inline void kh_resize_##name(kh_##name##_t *h, khint_t new_n_buckets) \
 	{																	\
 		uint32_t *new_flags = 0;										\
@@ -281,6 +295,7 @@ static inline khint_t __ac_X31_hash_string(const char *s)
 #define kh_resize(name, h, s) kh_resize_##name(h, s)
 #define kh_put(name, h, k, r) kh_put_##name(h, k, r)
 #define kh_get(name, h, k) kh_get_##name(h, k)
+#define kh_get_hash_code(name, h, k, hash_code) kh_get_hash_code_##name(h, k, hash_code)
 #define kh_del(name, h, k) kh_del_##name(h, k)
 
 #define kh_exist(h, x) (!__ac_iseither((h)->flags, (x)))

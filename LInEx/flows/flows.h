@@ -7,6 +7,7 @@
 #include <poll.h>
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "khash.h"
 #include "capture.h"
@@ -84,6 +85,26 @@ typedef struct flow_capture_session_t {
 	  * Object cache for flow info data structures.
 	  */
 	struct object_cache *flow_info_cache;
+
+	/**
+	  * Minimum acceptance value for a flow.
+	  */
+	uint32_t sampling_min_value;
+
+	/**
+	  * Maximum acceptance value for a flow.
+	  */
+	uint32_t sampling_max_value;
+
+	/**
+	  * Number of packets accepted after sampling.
+	  */
+	uint32_t sampling_accepted_packets;
+
+	/**
+	  * Number of packets discarded after sampling.
+	  */
+	uint32_t sampling_dropped_packets;
 } flow_capture_session;
 
 typedef struct flow_key_t {
@@ -135,12 +156,17 @@ typedef struct flow_info_t {
 	uint64_t total_bytes;
 } flow_info;
 
+void set_sampling_polynom(uint32_t polynom);
+
 int start_flow_capture_session(flow_capture_session *session,
 							   uint16_t export_timeout,
 							   uint16_t max_flow_lifetime,
-							   uint16_t object_cache_size);
+							   uint16_t object_cache_size,
+							   uint32_t sampling_min_value,
+							   uint32_t sampling_max_value);
 void stop_flow_capture_session(flow_capture_session *session);
 
 int add_interface(flow_capture_session *session, char *device_name, bool enable_promisc);
 
+void make_crc_table(const uint32_t polynom);
 #endif

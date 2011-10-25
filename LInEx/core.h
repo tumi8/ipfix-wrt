@@ -101,6 +101,9 @@ typedef struct{
 	uint16_t flow_export_timeout;
 	uint16_t flow_max_lifetime;
 	uint16_t flow_object_cache_size;
+	uint32_t flow_sampling_polynom;
+	uint32_t flow_sampling_min_value;
+	uint32_t flow_sampling_max_value;
 #ifdef SUPPORT_ANONYMIZATION
 	uint8_t anonymization_key[16];
 	uint8_t anonymization_pad[16];

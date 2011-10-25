@@ -45,7 +45,7 @@ void echo_config_file(config_file_descriptor* conf);
  * Extracts the content of the capturing group <match> from the <input>
  * and returns it as a string.
  */
-unsigned int extract_int_from_regmatch(regmatch_t* match, char* input);
+unsigned int extract_uint_from_regmatch(regmatch_t* match, char* input);
 
 /**
  * Extracts the content of a capturing group <match> from the <input>

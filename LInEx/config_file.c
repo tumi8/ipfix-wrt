@@ -54,6 +54,7 @@ regex_t regex_interval;
 regex_t regex_interface;
 regex_t regex_compression;
 regex_t regex_flow_params;
+regex_t regex_flow_sampling;
 regex_t regex_anonymization;
 regex_t regex_odid;
 regex_t regex_xmlfile;
@@ -80,6 +81,9 @@ config_file_descriptor* create_config_file_descriptor(){
 	current_config_file->flow_export_timeout = 5;
 	current_config_file->flow_max_lifetime = 120;
 	current_config_file->flow_object_cache_size = 64;
+	current_config_file->flow_sampling_polynom = 0;
+	current_config_file->flow_sampling_min_value = 0;
+	current_config_file->flow_sampling_max_value = 0;
 #ifdef SUPPORT_ANONYMIZATION
 	memset(current_config_file->anonymization_key, 0, sizeof(current_config_file->anonymization_key));
 	memset(current_config_file->anonymization_pad, 0, sizeof(current_config_file->anonymization_pad));
@@ -164,6 +168,8 @@ void init_config_regex(){
 	regcomp(&regex_compression,"^[ \t]*COMPRESSION[ \t]+([A-Za-z0-9.-]+)([ \t]+(.+))?[ \t\n]*$",REG_EXTENDED);
 	// Parameters for flow generation - FLOW_PARAMS <inactivity timeout> <maximum capture length> <object buffer length>
 	regcomp(&regex_flow_params, "^[ \t]*FLOW_PARAMS[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
+	// Parameters for flow sampling: FLOW_SAMPLING <polynom in least-significant bit first> <acceptance start range (inclusive)> <acceptance end range (inclusive)>
+	regcomp(&regex_flow_sampling, "^[ \t]*FLOW_SAMPLING[ \t]+(0x[0-9a-fA-F]+|[0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t\n]*", REG_EXTENDED);
 #ifdef SUPPORT_ANONYMIZATION
 	regcomp(&regex_anonymization,"^[ \t]*ANONYMIZATION[ \t]+([A-Fa-f0-9]+)[ \t]+([A-Fa-f0-9]+)[ \t\n]*$", REG_EXTENDED);
 #endif
@@ -187,6 +193,7 @@ void deinit_config_regex() {
 	regfree(&regex_interface);
 	regfree(&regex_compression);
 	regfree(&regex_flow_params);
+	regfree(&regex_flow_sampling);
 #ifdef SUPPORT_ANONYMIZATION
 	regfree(&regex_anonymization);
 #endif
@@ -215,12 +222,12 @@ char* extract_string_from_regmatch(regmatch_t* match, char* input){
  * Extracts the content of a capturing group <match> from the <input>
  * and returns it as an unsigned int.
  */
-unsigned int extract_int_from_regmatch(regmatch_t* match, char* input){
+unsigned int extract_uint_from_regmatch(regmatch_t* match, char* input){
 	//Null terminate
 	char swap = input[match->rm_eo];
 	unsigned int result;
 	input[match->rm_eo] = '\0';
-	result = atoi(&input[match->rm_so]);
+	result = strtoul(&input[match->rm_so], NULL, 10);
 	input[match->rm_eo] = swap;
 	return result;
 }
@@ -235,13 +242,13 @@ int process_rule_line(char* line, int in_line){
 	if(regexec(&regex_rule,line,5,config_buffer,0)){
 		THROWEXCEPTION("Malformed line (line %d)!\nExpecting rule line, but found this line:\n%s", in_line,line);
 	}
-	int transform_id = extract_int_from_regmatch(&config_buffer[2],line);
+	int transform_id = extract_uint_from_regmatch(&config_buffer[2],line);
 	transform_rule* tr = create_transform_rule();
-	tr->bytecount = (uint16_t)extract_int_from_regmatch(&config_buffer[1],line);
+	tr->bytecount = (uint16_t)extract_uint_from_regmatch(&config_buffer[1],line);
 	tr->transform_func = get_rule_by_index(transform_id, tr->bytecount);
 	tr->transform_id = transform_id;
-	tr->ie_id = extract_int_from_regmatch(&config_buffer[3],line);
-	tr->enterprise_id = extract_int_from_regmatch(&config_buffer[4],line);
+	tr->ie_id = extract_uint_from_regmatch(&config_buffer[3],line);
+	tr->enterprise_id = extract_uint_from_regmatch(&config_buffer[4],line);
 
 	//decrease number of rule lines to parse.
 	//If no more rule lines are to be parsed, the parsers expects
@@ -297,7 +304,7 @@ int process_source_line(char* line, int in_line){
 	current_source->source_path = extract_string_from_regmatch(&config_buffer[path_index],dataline);
 
 	//extract rule count
-	current_source->rule_count = extract_int_from_regmatch(&config_buffer[3],dataline);
+	current_source->rule_count = extract_uint_from_regmatch(&config_buffer[3],dataline);
 
 	//extract pattern
 	current_source->reg_exp = extract_string_from_regmatch(&config_buffer[4],dataline);
@@ -369,7 +376,7 @@ int process_collector_line(char* line, int in_line){
 	}
 
 	char* ip = extract_string_from_regmatch(&config_buffer[1],line);
-	int port = extract_int_from_regmatch(&config_buffer[2],line);
+	int port = extract_uint_from_regmatch(&config_buffer[2],line);
 	char* transport_protocol_str = extract_string_from_regmatch(&config_buffer[4], line);
 	enum ipfix_transport_protocol transport_protocol = UDP;
 
@@ -393,7 +400,7 @@ int process_interval_line(char* line, int in_line){
 		THROWEXCEPTION("INTERVAL line %d in config file is malformed:\n%s",in_line,line);
 	}
 
-	current_config_file->interval = extract_int_from_regmatch(&config_buffer[1],line);
+	current_config_file->interval = extract_uint_from_regmatch(&config_buffer[1],line);
 	return 1;
 }
 
@@ -429,7 +436,7 @@ int process_compression_line(char* line, int in_line){
 }
 
 /**
- * Processes the compression line in the config file
+ * Processes the flow params line in the config file
  * <line> is the content of that line
  * <in_line> is the number of that line
  */
@@ -438,9 +445,32 @@ int process_flow_params_line(char* line, int in_line){
 		THROWEXCEPTION("FLOW_PARAMS line %d in config file is malformed:\n%s",in_line,line);
 	}
 
-	current_config_file->flow_export_timeout = extract_int_from_regmatch(&config_buffer[1], line);
-	current_config_file->flow_max_lifetime = extract_int_from_regmatch(&config_buffer[2], line);
-	current_config_file->flow_object_cache_size = extract_int_from_regmatch(&config_buffer[3], line);
+	current_config_file->flow_export_timeout = extract_uint_from_regmatch(&config_buffer[1], line);
+	current_config_file->flow_max_lifetime = extract_uint_from_regmatch(&config_buffer[2], line);
+	current_config_file->flow_object_cache_size = extract_uint_from_regmatch(&config_buffer[3], line);
+
+	return 1;
+}
+
+/**
+ * Processes the flow sampling line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
+int process_flow_sampling_line(char* line, int in_line){
+	if(regexec(&regex_flow_sampling,line,4,config_buffer,0)){
+		THROWEXCEPTION("FLOW_SAMPLING line %d in config file is malformed:\n%s",in_line,line);
+	}
+
+	char *crc_polynom = extract_string_from_regmatch(&config_buffer[1], line);
+	if (strncmp(crc_polynom, "0x", 2) == 0) {
+		current_config_file->flow_sampling_polynom = strtoul(crc_polynom, NULL, 16);
+	} else {
+		current_config_file->flow_sampling_polynom = strtoul(crc_polynom, NULL, 10);
+	}
+
+	current_config_file->flow_sampling_min_value = extract_uint_from_regmatch(&config_buffer[2], line);
+	current_config_file->flow_sampling_max_value = extract_uint_from_regmatch(&config_buffer[3], line);
 
 	return 1;
 }
@@ -506,7 +536,7 @@ int process_odid_line(char* line, int in_line){
 		THROWEXCEPTION("ODID line %d in config file is malformed:\n%s",in_line,line);
 	}
 
-	current_config_file->observation_domain_id = extract_int_from_regmatch(&config_buffer[1],line);
+	current_config_file->observation_domain_id = extract_uint_from_regmatch(&config_buffer[1],line);
 	return 1;
 }
 
@@ -616,6 +646,8 @@ int process_config_line(char* line, int in_line){
 				process_compression_line(line, in_line);
 			} else if(!regexec(&regex_flow_params,line,4,config_buffer,0)) {
 				process_flow_params_line(line, in_line);
+			} else if(!regexec(&regex_flow_sampling,line,4,config_buffer,0)) {
+				process_flow_sampling_line(line, in_line);
 			} else if(!regexec(&regex_interface,line,2,config_buffer,0)) {
 				process_interface_line(line, in_line);
 #ifdef SUPPORT_ANONYMIZATION

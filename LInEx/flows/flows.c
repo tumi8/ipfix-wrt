@@ -25,6 +25,9 @@
 #include <stdbool.h>
 #include <fcntl.h>
 
+uint32_t crc_polynom = 0;
+
+static uint32_t crc(uint32_t seed, uint8_t *buf, size_t len);
 static int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt);
 #ifdef SUPPORT_IPV6
 static int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt);
@@ -66,10 +69,17 @@ static struct sock_filter ip_filter[] = {
     { 0x6, 0, 0, 0x00000000 },
 };
 
+void set_sampling_polynom(uint32_t polynom) {
+	crc_polynom = polynom;
+	make_crc_table(polynom);
+}
+
 int start_flow_capture_session(flow_capture_session *session,
 							   uint16_t export_timeout,
 							   uint16_t max_flow_lifetime,
-							   uint16_t object_cache_size) {
+							   uint16_t object_cache_size,
+							   uint32_t sampling_min_value,
+							   uint32_t sampling_max_value) {
 	session->ipv4_flow_database = NULL;
 #ifdef SUPPORT_IPV6
 	session->ipv6_flow_database = NULL;
@@ -87,10 +97,10 @@ int start_flow_capture_session(flow_capture_session *session,
 	if (!session->ipv6_flow_database)
 		goto error;
 #endif
-	session->flow_key_cache = init_object_cache(128, sizeof(struct flow_key_t));
+	session->flow_key_cache = init_object_cache(object_cache_size, sizeof(struct flow_key_t));
 	if (!session->flow_key_cache)
 		goto error;
-	session->flow_info_cache = init_object_cache(128, sizeof(struct flow_info_t));
+	session->flow_info_cache = init_object_cache(object_cache_size, sizeof(struct flow_info_t));
 	if (!session->flow_info_cache)
 		goto error;
 
@@ -100,6 +110,11 @@ int start_flow_capture_session(flow_capture_session *session,
 
     session->export_timeout = export_timeout;
 	session->max_flow_lifetime = max_flow_lifetime;
+
+	session->sampling_min_value = sampling_min_value;
+	session->sampling_max_value = sampling_max_value;
+	session->sampling_accepted_packets = 0;
+	session->sampling_dropped_packets = 0;
 
     return 0;
 
@@ -243,35 +258,13 @@ static inline int parse_ethernet(flow_capture_session *session, struct pktinfo *
     }
 }
 
-/*
-
-static int parse_ip(capture_session *session, const struct pcap_pkthdr *const pkthdr, const u_char *const data, const u_char *const end_data) {
-    if (data + 1 > end_data) {
-        msg(MSG_ERROR, "Packet too short to be a valid IP packet.");
-        return -1;
-    }
-
-    u_char version = (*data & 0xf0) >> 4;
-
-    switch (version) {
-    case 4:
-        return parse_ipv4(session, pkthdr, data, end_data);
-    case 6:
-        return parse_ipv6(session, pkthdr, data, end_data);
-    default:
-        msg(MSG_ERROR, "Unknown IP header version (%d).", version);
-        return -1;
-    }
-}
-*/
-
 static inline int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt) {
     if (pkt->data + sizeof(struct iphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid IPv4 packet (by %t bytes).", (pkt->data + sizeof(struct iphdr) - pkt->end_data));
         return -1;
     }
 
-    const struct iphdr * const hdr = (const struct iphdr * const) pkt->data;
+	struct iphdr * const hdr = (struct iphdr * const) pkt->data;
 
     // Determine start address of payload based on the IHL header.
     pkt->data += hdr->ihl * 4;
@@ -287,7 +280,7 @@ static inline int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt)
 	key.src_addr.v4.s_addr = hdr->saddr;
 	key.dst_addr.v4.s_addr = hdr->daddr;
 
-    switch (hdr->protocol) {
+	switch (hdr->protocol) {
     case SOL_UDP:
 		return parse_udp(session, pkt, &key);
         break;
@@ -325,6 +318,34 @@ static inline int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt)
 }
 #endif
 
+static inline bool include_hash_code(flow_capture_session *session,
+									 uint32_t hash_code) {
+	if (!crc_polynom)
+		return true;
+
+	DPRINTF("Accepted: %u Dropped: %u", hash_code, session->sampling_accepted_packets, session->sampling_dropped_packets);
+	if (hash_code < session->sampling_min_value
+			|| hash_code > session->sampling_max_value) {
+		session->sampling_dropped_packets++;
+
+		// Handle wrap-around
+		if (session->sampling_dropped_packets == 0) {
+			session->sampling_accepted_packets = 0;
+		}
+
+		return false;
+	} else {
+		session->sampling_accepted_packets++;
+
+		// Handle wrap-around
+		if (session->sampling_accepted_packets == 0) {
+			session->sampling_dropped_packets = 0;
+		}
+
+		return  true;
+	}
+}
+
 static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow) {
     if (pkt->data + sizeof(struct udphdr) > pkt->end_data) {
         msg(MSG_ERROR, "Packet too short to be a valid UDP packet.");
@@ -333,9 +354,14 @@ static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, 
 
     const struct udphdr * const hdr = (const struct udphdr * const) pkt->data;
 
-    flow->t_protocol = TRANSPORT_UDP;
-    flow->src_port = hdr->source;
-    flow->dst_port = hdr->dest;
+	flow->t_protocol = TRANSPORT_UDP;
+	flow->src_port = hdr->source;
+	flow->dst_port = hdr->dest;
+
+	uint32_t hash_code = flow_key_hash_code(flow);
+	if (!include_hash_code(session, hash_code)) {
+		return 0;
+	}
 
     pkt->data += sizeof(struct udphdr);
 
@@ -354,7 +380,7 @@ static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, 
 #endif
 	}
 
-	k = kh_get(1, flow_database, flow);
+	k = kh_get_hash_code(1, flow_database, flow, hash_code);
 
 	if (k == kh_end(flow_database)) {
         int ret;
@@ -364,7 +390,6 @@ static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, 
             msg(MSG_ERROR, "Failed to allocate memory for flow info structure.");
             return -1;
         }
-
 
 		info->first_packet_timestamp = time(NULL);
 		info->total_bytes = 0;
@@ -394,9 +419,14 @@ static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, 
 
     const struct tcphdr * const hdr = (const struct tcphdr * const) pkt->data;
 
-    flow->t_protocol = TRANSPORT_TCP;
-    flow->src_port = hdr->source;
-    flow->dst_port = hdr->dest;
+	flow->t_protocol = TRANSPORT_TCP;
+	flow->src_port = hdr->source;
+	flow->dst_port = hdr->dest;
+
+	uint32_t hash_code = flow_key_hash_code(flow);
+	if (!include_hash_code(session, hash_code)) {
+		return 0;
+	}
 
     flow_info *info = NULL;
 	khash_t(1) *flow_database = NULL;
@@ -413,7 +443,7 @@ static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, 
 #endif
 	}
 
-	k = kh_get(1, flow_database, flow);
+	k = kh_get_hash_code(1, flow_database, flow, hash_code);
 
 	if (k == kh_end(flow_database)) {
         int ret;
@@ -471,62 +501,92 @@ void capture_error_callback(int fd, struct flow_capture_callback_param *param) {
 }
 
 static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
-    uint32_t addr1;
-    uint32_t addr2;
+	uint32_t addr1;
+	uint32_t addr2;
+	uint16_t port1;
+	uint16_t port2;
 
 	if (key->src_addr.v4.s_addr < key->dst_addr.v4.s_addr) {
 		addr1 = key->src_addr.v4.s_addr;
 		addr2 = key->dst_addr.v4.s_addr;
-    } else {
+		port1 = key->src_port;
+		port2 = key->dst_port;
+	} else {
 		addr1 = key->dst_addr.v4.s_addr;
 		addr2 = key->src_addr.v4.s_addr;
-    }
+		port1 = key->dst_port;
+		port2 = key->src_port;
+	}
 
-    hashcode = hashcode * 23 + addr1;
-    hashcode = hashcode * 23 + addr2;
+	if (!crc_polynom) {
+		hashcode = hashcode * 23 + ((port1 << 16) | port2);
+		hashcode = hashcode * 23 + addr1;
+		hashcode = hashcode * 23 + addr2;
+	} else {
+		hashcode = crc(hashcode, (uint8_t *) &port1, sizeof(port1));
+		hashcode = crc(hashcode, (uint8_t *) &port2, sizeof(port2));
+		hashcode = crc(hashcode, (uint8_t *) &addr1, sizeof(addr1));
+		hashcode = crc(hashcode, (uint8_t *) &addr2, sizeof(addr2));
+	}
 
     return hashcode;
 }
 
 #ifdef SUPPORT_IPV6
 static uint32_t flow_key_hash_code_ipv6(flow_key *key, uint32_t hashcode) {
-    uint8_t *addr1;
-    uint8_t *addr2;
+	uint8_t *addr1;
+	uint8_t *addr2;
+	uint16_t port1;
+	uint16_t port2;
 
-    if (memcmp(&key->src_addr, &key->dst_addr, sizeof(key->src_addr)) <= 0) {
+	if (memcmp(&key->src_addr, &key->dst_addr, sizeof(key->src_addr)) <= 0) {
 		addr1 = (uint8_t *) key->src_addr.v6.s6_addr;
 		addr2 = (uint8_t *) key->dst_addr.v6.s6_addr;
-    } else {
+		port1 = key->src_port;
+		port2 = key->dst_port;
+	} else {
 		addr1 = (uint8_t *) key->dst_addr.v6.s6_addr;
 		addr2 = (uint8_t *) key->src_addr.v6.s6_addr;
-    }
+		port1 = key->dst_port;
+		port2 = key->src_port;
+	}
     int i;
 
-    for (i = 0; i < 4; i++) {
-        hashcode = hashcode * 23 + *(addr1 + i);
-        hashcode = hashcode * 23 + *(addr2 + i);
-    }
+	if (!crc_polynom) {
+		hashcode = hashcode * 23 + ((port1 << 16) | port2);
+
+		for (i = 0; i < 4; i++) {
+			if (!crc_polynom) {
+				hashcode = hashcode * 23 + *addr1;
+				hashcode = hashcode * 23 + *addr2;
+			}
+			addr1++;
+			addr2++;
+		}
+	} else {
+		hashcode = crc(hashcode, (uint8_t *) &port1, sizeof(port1));
+		hashcode = crc(hashcode, (uint8_t *) &port2, sizeof(port2));
+		hashcode = crc(hashcode, addr1, sizeof(struct in6_addr));
+		hashcode = crc(hashcode, addr2, sizeof(struct in6_addr));
+	}
 
     return hashcode;
 }
 #endif
 
 uint32_t flow_key_hash_code(struct flow_key_t *key) {
-    uint32_t hashcode = 17;
+	uint32_t hashcode;
 
-    uint16_t port1;
-    uint16_t port2;
+	if (!crc_polynom) {
+		hashcode = 17;
 
-    if (key->src_port < key->dst_port) {
-        port1 = key->src_port;
-        port2 = key->dst_port;
-    } else {
-        port1 = key->dst_port;
-        port2 = key->src_port;
-    }
+		hashcode = hashcode * 23 + (((char) key->protocol) << 8 | (char) key->t_protocol);
+	} else {
+		hashcode = 0xffffffff;
 
-    hashcode = hashcode * 23 + ((port1 << 16) | port2);
-    hashcode = hashcode * 23 + (((char) key->protocol) << 8 | (char) key->t_protocol);
+		hashcode = crc(hashcode, (uint8_t *) &key->protocol, sizeof(key->protocol));
+		hashcode = crc(hashcode, (uint8_t *) &key->t_protocol, sizeof(key->t_protocol));
+	}
 
     switch (key->protocol) {
     case IPv4:
@@ -536,7 +596,7 @@ uint32_t flow_key_hash_code(struct flow_key_t *key) {
 		return flow_key_hash_code_ipv6(key, hashcode);
 #endif
     default:
-        msg(MSG_ERROR, "Hashcode was called for unsupported flow key type.");
+		DPRINTF("Hashcode was called for unsupported flow key type.");
         return hashcode;
     }
 }
@@ -546,7 +606,7 @@ static int flow_key_equals_ipv4(const flow_key *a, const flow_key *b) {
 			a->dst_addr.v4.s_addr == b->dst_addr.v4.s_addr &&
 			a->src_port == b->src_port &&
 			a->dst_port == b->dst_port)
-            ||
+			||
 			(a->src_addr.v4.s_addr == b->dst_addr.v4.s_addr &&
 			 a->dst_addr.v4.s_addr == b->src_addr.v4.s_addr &&
 			 a->src_port == b->dst_port &&
@@ -559,7 +619,7 @@ static int flow_key_equals_ipv6(const flow_key *a, const flow_key *b) {
 			memcmp(&a->dst_addr.v6, &b->dst_addr.v6, sizeof(a->dst_addr.v6)) == 0 &&
 			a->src_port == b->src_port &&
 			a->dst_port == b->dst_port)
-            ||
+			||
 			(memcmp(&a->src_addr.v6, &b->dst_addr.v6, sizeof(a->src_addr.v6)) == 0 &&
 			 memcmp(&a->dst_addr.v6, &b->src_addr.v6, sizeof(a->dst_addr.v6)) == 0 &&
 			 a->src_port == b->dst_port &&
@@ -585,4 +645,58 @@ int flow_key_equals(struct flow_key_t *a, struct flow_key_t *b) {
         msg(MSG_ERROR, "Equals was called for unsupported flow key type.");
         return 0;
     }
+}
+
+/**
+  * CRC code from http://www.w3.org/TR/PNG/#D-CRCAppendix with minor
+  * modifications.
+  */
+
+/* Table of CRCs of all 8-bit messages. */
+static uint32_t crc_table[256];
+
+/**
+ * Make the table for a fast CRC.
+ * Note: The polynom should be in least-significant bit first form.
+ */
+void make_crc_table(const uint32_t polynom)
+{
+	uint32_t c;
+	uint16_t n, k;
+
+	for (n = 0; n < 256; n++) {
+		c = n;
+		for (k = 0; k < 8; k++) {
+			if (c & 1)
+				c = polynom ^ (c >> 1);
+			else
+				c = c >> 1;
+		}
+		crc_table[n] = c;
+	}
+}
+
+
+/* Update a running CRC with the bytes buf[0..len-1]--the CRC
+   should be initialized to all 1's, and the transmitted value
+   is the 1's complement of the final running CRC (see the
+   crc() routine below). */
+
+static uint32_t update_crc(uint32_t crc, uint8_t *buf,
+						   size_t len)
+{
+	while (len--) {
+		crc = crc_table[(crc ^ *buf++) & 0xff] ^ (crc >> 8);
+	}
+	return crc;
+}
+
+/**
+ * Return the CRC of the bytes buf[0..len-1].
+ *
+ * On the first invocation seed should be set to 0xffffffff.
+ */
+static uint32_t crc(uint32_t seed, uint8_t *buf, size_t len)
+{
+	return update_crc(seed, buf, len) ^ 0xffffffffL;
 }
