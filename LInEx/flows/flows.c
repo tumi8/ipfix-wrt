@@ -323,7 +323,7 @@ static inline bool include_hash_code(flow_capture_session *session,
 	if (!crc_polynom)
 		return true;
 
-	DPRINTF("Accepted: %u Dropped: %u", hash_code, session->sampling_accepted_packets, session->sampling_dropped_packets);
+	DPRINTF("Hashcode: %u Accepted: %u Dropped: %u", hash_code, session->sampling_accepted_packets, session->sampling_dropped_packets);
 	if (hash_code < session->sampling_min_value
 			|| hash_code > session->sampling_max_value) {
 		session->sampling_dropped_packets++;
@@ -511,11 +511,21 @@ static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
 		addr2 = key->dst_addr.v4.s_addr;
 		port1 = key->src_port;
 		port2 = key->dst_port;
-	} else {
+	} else if (key->src_addr.v4.s_addr > key->dst_addr.v4.s_addr){
 		addr1 = key->dst_addr.v4.s_addr;
 		addr2 = key->src_addr.v4.s_addr;
 		port1 = key->dst_port;
 		port2 = key->src_port;
+	} else {
+		addr1 = key->src_addr.v4.s_addr;
+		addr2 = key->dst_addr.v4.s_addr;
+		if (key->src_port < key->dst_port) {
+			port1 = key->src_port;
+			port2 = key->dst_port;
+		} else {
+			port1 = key->dst_port;
+			port2 = key->src_port;
+		}
 	}
 
 	if (!crc_polynom) {
@@ -539,11 +549,23 @@ static uint32_t flow_key_hash_code_ipv6(flow_key *key, uint32_t hashcode) {
 	uint16_t port1;
 	uint16_t port2;
 
-	if (memcmp(&key->src_addr, &key->dst_addr, sizeof(key->src_addr)) <= 0) {
+	int cmp = memcmp(&key->src_addr, &key->dst_addr, sizeof(key->src_addr));
+	if (cmp <= 0) {
 		addr1 = (uint8_t *) key->src_addr.v6.s6_addr;
 		addr2 = (uint8_t *) key->dst_addr.v6.s6_addr;
-		port1 = key->src_port;
-		port2 = key->dst_port;
+		if (cmp == 0) {
+			// Handle the special case of src addr == orig addr
+			if (key->src_port < key->dst_port) {
+				port1 = key->src_port;
+				port2 = key->dst_port;
+			} else {
+				port1 = key->dst_port;
+				port2 = key->src_port;
+			}
+		} else {
+			port1 = key->src_port;
+			port2 = key->dst_port;
+		}
 	} else {
 		addr1 = (uint8_t *) key->dst_addr.v6.s6_addr;
 		addr2 = (uint8_t *) key->src_addr.v6.s6_addr;
