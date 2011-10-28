@@ -59,16 +59,61 @@ static struct sock_filter egress_filter[] = {
 };
 
 /**
-  * Compiled BPF filter: tcpdump -dd "ip or ip6"
+  * Sampling BPF filter.
+  *
+  * Note: It currently only supports IPv4 so IPv6 capturing will not work
+  *       at all.
   */
-static struct sock_filter ip_filter[] = {
-    { 0x28, 0, 0, 0x0000000c },
-    { 0x15, 1, 0, 0x00000800 },
-    { 0x15, 0, 1, 0x000086dd },
-    { 0x6, 0, 0, 0x0000ffff },
-    { 0x6, 0, 0, 0x00000000 },
+static struct sock_filter hash_filter[] = {
+#define PRIME 86477
+	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 12), // Load ethernet proto
+	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0x800, 0, 41), // Abort if this is not IPv4
+	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 20), // Load fragmentation info
+	BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, 0x1ffff, 39, 0), // Check if it is the first fragment - if not reject
+	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 26), // Load source address
+	BPF_STMT(BPF_ST, 0), // Store in scratch memory 0x0
+	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 30), // Load destination address
+	BPF_STMT(BPF_ST, 1), // Store in scratch memory 0x1
+	BPF_STMT(BPF_LDX | BPF_B | BPF_MSH, 14), // Set index register to beginning of payload
+	BPF_STMT(BPF_LD | BPF_B | BPF_ABS, 23), // Load protocol
+	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0x11, 1, 0), // Check if UDP
+	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0x6, 0, 31), // Check if TCP
+	BPF_STMT(BPF_LD | BPF_H | BPF_IND, 14),
+	BPF_STMT(BPF_ST, 0x2), // Store source port in scratch memory 0x2
+	BPF_STMT(BPF_LD | BPF_H | BPF_IND, 16),
+	BPF_STMT(BPF_ST, 0x3), // Store destination port in scratch memory 0x3
+	BPF_STMT(BPF_LD | BPF_MEM, 0x0), // Load source address
+	BPF_STMT(BPF_LDX | BPF_MEM, 0x1), // Load destination address
+	BPF_JUMP(BPF_JMP | BPF_JGE | BPF_X, 0x0, 11, 0),
+	BPF_STMT(BPF_LD | BPF_MEM, 0x0), // Load source address
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0), // Add destination address
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_LDX | BPF_MEM, 0x2), // Load source port
+	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_LDX | BPF_MEM, 0x3), // Load destination port
+	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_JMP | BPF_JA, 11),
+	// SWAPPED begins here
+	BPF_STMT(BPF_LD | BPF_MEM, 0x1), // Load destination address
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_LDX | BPF_MEM, 0x0), // Load source address
+	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0), // Add source address
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_LDX | BPF_MEM, 0x3), // Load destination port
+	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_LDX | BPF_MEM, 0x2), // Load source port
+	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	// RETURN_VALUE begins here
+	BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0xdeadbeef, 1, 0),
+	BPF_STMT(BPF_RET | BPF_K, 0xffff),
+	// REJECT begins here
+	BPF_STMT(BPF_RET | BPF_K, 0)
 };
-
 void set_sampling_polynom(uint32_t polynom) {
 	crc_polynom = polynom;
 	make_crc_table(polynom);
@@ -78,7 +123,7 @@ int start_flow_capture_session(flow_capture_session *session,
 							   uint16_t export_timeout,
 							   uint16_t max_flow_lifetime,
 							   uint16_t object_cache_size,
-							   uint32_t sampling_min_value,
+							   enum flow_sampling_mode sampling_mode,
 							   uint32_t sampling_max_value) {
 	session->ipv4_flow_database = NULL;
 #ifdef SUPPORT_IPV6
@@ -111,7 +156,7 @@ int start_flow_capture_session(flow_capture_session *session,
     session->export_timeout = export_timeout;
 	session->max_flow_lifetime = max_flow_lifetime;
 
-	session->sampling_min_value = sampling_min_value;
+	session->sampling_mode = sampling_mode;
 	session->sampling_max_value = sampling_max_value;
 	session->sampling_accepted_packets = 0;
 	session->sampling_dropped_packets = 0;
@@ -137,27 +182,43 @@ error:
 
 
 
-static struct sock_fprog build_filter(const struct sockaddr *hwaddr) {
+static struct sock_fprog build_filter(flow_capture_session *session,
+									  const struct sockaddr *hwaddr) {
     struct sock_fprog prog = { 0, NULL };
 
+	switch (session->sampling_mode) {
+	case CRC32SamplingMode:
+	case NullSamplingMode:
+		if (hwaddr->sa_family == ARPHRD_ETHER) {
+			struct sock_filter *filter = egress_filter;
 
-    if (hwaddr->sa_family == ARPHRD_ETHER) {
-        struct sock_filter *filter = egress_filter;
+			const char *macaddr = hwaddr->sa_data;
 
-        const char *macaddr = hwaddr->sa_data;
+			// Last 32 bit of MAC address
+			filter[1].k = ntohl(*((uint32_t *) macaddr + 2));
+			// First 16 bit of MAC address
+			filter[3].k = ntohs(*((uint16_t *) macaddr));
 
-        // Last 32 bit of MAC address
-        filter[1].k = ntohl(*((uint32_t *) macaddr + 2));
-        // First 16 bit of MAC address
-        filter[3].k = ntohs(*((uint16_t *) macaddr));
+			prog.len = sizeof(egress_filter) / sizeof(struct sock_filter);
+			prog.filter = filter;
 
-        prog.len = sizeof(egress_filter) / sizeof(struct sock_filter);
-        prog.filter = filter;
+		}
+		break;
+	case BPFSamplingMode:
+	{
+		// Insert sampling max value into filter
+		int i;
+		for (i = 0; i < sizeof(hash_filter) / sizeof(struct sock_filter); i++) {
+			if (hash_filter[i].k == 0xdeadbeef) {
+				hash_filter[i].k = session->sampling_max_value;
+			}
+		}
 
-    } else {
-        prog.filter = ip_filter;
-        prog.len = sizeof(ip_filter) / sizeof(struct sock_filter);
-    }
+		prog.filter = hash_filter;
+		prog.len = sizeof(hash_filter) / sizeof(struct sock_filter);
+		break;
+	}
+	}
 
     return prog;
 }
@@ -181,7 +242,7 @@ int add_interface(flow_capture_session *session, char *device_name, bool enable_
 
 	close(fd);
 
-	struct sock_fprog filter = build_filter(&hwaddr);
+	struct sock_fprog filter = build_filter(session, &hwaddr);
 	struct capture_info *info = start_capture(session->capture_session,
 											  device_name, 256, &filter);
 	if (!info) {
@@ -320,12 +381,12 @@ static inline int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt)
 
 static inline bool include_hash_code(flow_capture_session *session,
 									 uint32_t hash_code) {
-	if (!crc_polynom)
+	if (session->sampling_mode != CRC32SamplingMode)
 		return true;
 
 	DPRINTF("Hashcode: %u Accepted: %u Dropped: %u", hash_code, session->sampling_accepted_packets, session->sampling_dropped_packets);
-	if (hash_code < session->sampling_min_value
-			|| hash_code > session->sampling_max_value) {
+
+	if (hash_code > session->sampling_max_value) {
 		session->sampling_dropped_packets++;
 
 		// Handle wrap-around
@@ -335,6 +396,7 @@ static inline bool include_hash_code(flow_capture_session *session,
 
 		return false;
 	} else {
+
 		session->sampling_accepted_packets++;
 
 		// Handle wrap-around
@@ -511,7 +573,7 @@ static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
 		addr2 = key->dst_addr.v4.s_addr;
 		port1 = key->src_port;
 		port2 = key->dst_port;
-	} else if (key->src_addr.v4.s_addr > key->dst_addr.v4.s_addr){
+	} else if (key->src_addr.v4.s_addr >= key->dst_addr.v4.s_addr){
 		addr1 = key->dst_addr.v4.s_addr;
 		addr2 = key->src_addr.v4.s_addr;
 		port1 = key->dst_port;
@@ -529,9 +591,19 @@ static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
 	}
 
 	if (!crc_polynom) {
-		hashcode = hashcode * 23 + ((port1 << 16) | port2);
-		hashcode = hashcode * 23 + addr1;
-		hashcode = hashcode * 23 + addr2;
+		/*
+		  The following should be used if the correctness of the BPF filter
+		  should be checked (it converts to host endianess):
+		hashcode = ntohl(addr1) * PRIME;
+		hashcode = (hashcode + ntohl(addr2)) * PRIME;
+		hashcode = (hashcode + ntohs(port1)) * PRIME;
+		hashcode = (hashcode + ntohs(port2)) * PRIME;
+		*/
+
+		hashcode = addr1 * PRIME;
+		hashcode = (hashcode + addr2) * PRIME;
+		hashcode = (hashcode + port1) * PRIME;
+		hashcode = (hashcode + port2) * PRIME;
 	} else {
 		hashcode = crc(hashcode, (uint8_t *) &port1, sizeof(port1));
 		hashcode = crc(hashcode, (uint8_t *) &port2, sizeof(port2));
@@ -597,12 +669,12 @@ static uint32_t flow_key_hash_code_ipv6(flow_key *key, uint32_t hashcode) {
 #endif
 
 uint32_t flow_key_hash_code(struct flow_key_t *key) {
-	uint32_t hashcode;
+	uint32_t hashcode = 0;
 
 	if (!crc_polynom) {
-		hashcode = 17;
+		//hashcode = 17;
 
-		hashcode = hashcode * 23 + (((char) key->protocol) << 8 | (char) key->t_protocol);
+		//hashcode = hashcode * 23 + (((char) key->protocol) << 8 | (char) key->t_protocol);
 	} else {
 		hashcode = 0xffffffff;
 

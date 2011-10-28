@@ -81,8 +81,8 @@ config_file_descriptor* create_config_file_descriptor(){
 	current_config_file->flow_export_timeout = 5;
 	current_config_file->flow_max_lifetime = 120;
 	current_config_file->flow_object_cache_size = 64;
+	current_config_file->flow_sampling_mode = NullSamplingMode;
 	current_config_file->flow_sampling_polynom = 0;
-	current_config_file->flow_sampling_min_value = 0;
 	current_config_file->flow_sampling_max_value = 0;
 #ifdef SUPPORT_ANONYMIZATION
 	memset(current_config_file->anonymization_key, 0, sizeof(current_config_file->anonymization_key));
@@ -168,8 +168,8 @@ void init_config_regex(){
 	regcomp(&regex_compression,"^[ \t]*COMPRESSION[ \t]+([A-Za-z0-9.-]+)([ \t]+(.+))?[ \t\n]*$",REG_EXTENDED);
 	// Parameters for flow generation - FLOW_PARAMS <inactivity timeout> <maximum capture length> <object buffer length>
 	regcomp(&regex_flow_params, "^[ \t]*FLOW_PARAMS[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	// Parameters for flow sampling: FLOW_SAMPLING <polynom in least-significant bit first> <acceptance start range (inclusive)> <acceptance end range (inclusive)>
-	regcomp(&regex_flow_sampling, "^[ \t]*FLOW_SAMPLING[ \t]+(0x[0-9a-fA-F]+|[0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t\n]*", REG_EXTENDED);
+	// Parameters for flow sampling: FLOW_SAMPLING <mode> <acceptance end range (inclusive)> <polynom in least-significant bit first if mode is CRC32>
+	regcomp(&regex_flow_sampling, "^[ \t]*FLOW_SAMPLING[ \t]+(CRC32|BPF)[ \t]+([0-9]+)[ \t]*(0x[0-9a-fA-F]+|[0-9]+)?[ \t\n]*$", REG_EXTENDED);
 #ifdef SUPPORT_ANONYMIZATION
 	regcomp(&regex_anonymization,"^[ \t]*ANONYMIZATION[ \t]+([A-Fa-f0-9]+)[ \t]+([A-Fa-f0-9]+)[ \t\n]*$", REG_EXTENDED);
 #endif
@@ -462,15 +462,23 @@ int process_flow_sampling_line(char* line, int in_line){
 		THROWEXCEPTION("FLOW_SAMPLING line %d in config file is malformed:\n%s",in_line,line);
 	}
 
-	char *crc_polynom = extract_string_from_regmatch(&config_buffer[1], line);
-	if (strncmp(crc_polynom, "0x", 2) == 0) {
-		current_config_file->flow_sampling_polynom = strtoul(crc_polynom, NULL, 16);
-	} else {
-		current_config_file->flow_sampling_polynom = strtoul(crc_polynom, NULL, 10);
+	char *mode = extract_string_from_regmatch(&config_buffer[1], line);
+
+	if (strcmp(mode, "CRC32") == 0) {
+		current_config_file->flow_sampling_mode = CRC32SamplingMode;
+
+		char *crc_polynom = extract_string_from_regmatch(&config_buffer[3], line);
+		if (strncmp(crc_polynom, "0x", 2) == 0) {
+			current_config_file->flow_sampling_polynom = strtoul(crc_polynom, NULL, 16);
+		} else {
+			current_config_file->flow_sampling_polynom = strtoul(crc_polynom, NULL, 10);
+		}
+
+	} else if (strcmp(mode, "BPF") == 0) {
+		current_config_file->flow_sampling_mode = BPFSamplingMode;
 	}
 
-	current_config_file->flow_sampling_min_value = extract_uint_from_regmatch(&config_buffer[2], line);
-	current_config_file->flow_sampling_max_value = extract_uint_from_regmatch(&config_buffer[3], line);
+	current_config_file->flow_sampling_max_value = extract_uint_from_regmatch(&config_buffer[2], line);
 
 	return 1;
 }

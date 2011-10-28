@@ -33,6 +33,12 @@ int flow_key_equals(struct flow_key_t *a, struct flow_key_t *b);
 
 KHASH_INIT(1, struct flow_key_t *, struct flow_info_t *, 1, hash_code, hash_eq)
 
+enum flow_sampling_mode {
+	NullSamplingMode,
+	BPFSamplingMode,
+	CRC32SamplingMode
+};
+
 typedef struct flow_capture_session_t {
     /**
 	  * Hash table containing the currently active IPv4 flows.
@@ -87,9 +93,9 @@ typedef struct flow_capture_session_t {
 	struct object_cache *flow_info_cache;
 
 	/**
-	  * Minimum acceptance value for a flow.
+	  * The sampling method which should be used.
 	  */
-	uint32_t sampling_min_value;
+	enum flow_sampling_mode sampling_mode;
 
 	/**
 	  * Maximum acceptance value for a flow.
@@ -162,7 +168,7 @@ int start_flow_capture_session(flow_capture_session *session,
 							   uint16_t export_timeout,
 							   uint16_t max_flow_lifetime,
 							   uint16_t object_cache_size,
-							   uint32_t sampling_min_value,
+							   enum flow_sampling_mode sampling_mode,
 							   uint32_t sampling_max_value);
 void stop_flow_capture_session(flow_capture_session *session);
 

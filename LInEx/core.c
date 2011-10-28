@@ -174,14 +174,15 @@ int main(int argc, char **argv)
 
 	// Start capturing sessions
 
-	if (conf->flow_sampling_polynom)
+	if (conf->flow_sampling_mode == CRC32SamplingMode &&
+			conf->flow_sampling_polynom)
 		set_sampling_polynom(conf->flow_sampling_polynom);
 
 	if (start_flow_capture_session(&flow_session,
 								   conf->flow_export_timeout,
 								   conf->flow_max_lifetime,
 								   conf->flow_object_cache_size,
-								   conf->flow_sampling_min_value,
+								   conf->flow_sampling_mode,
 								   conf->flow_sampling_max_value))
 		msg(MSG_ERROR, "Failed to start capture session.");
 
@@ -219,11 +220,11 @@ int main(int argc, char **argv)
 	node_set = kh_init(2);
 
 	struct export_parameters params = { send_exporter, node_set };
-	event_loop_add_timer(20000, (void (*)(void *)) &export_full, &params);
+	event_loop_add_timer(120000, (void (*)(void *)) &export_full, &params);
 
 	// Add timer to export flows
 	struct export_flow_parameter flow_param = { send_exporter, &flow_session };
-	event_loop_add_timer(5000, (void (*)(void *)) &export_flows, &flow_param);
+	event_loop_add_timer(60000, (void (*)(void *)) &export_flows, &flow_param);
 
 	// Add timer to export records
 	struct export_record_parameters record_params = { send_exporter, conf, xmlfh };
@@ -235,7 +236,7 @@ int main(int argc, char **argv)
 		flow_session.capture_session,
 		olsr_capture_session
 	};
-	event_loop_add_timer(10000, (void (*) (void *)) &export_capture_statistics, &capture_statistics_param);
+	event_loop_add_timer(60000, (void (*) (void *)) &export_capture_statistics, &capture_statistics_param);
 
 	return event_loop_run();
 }

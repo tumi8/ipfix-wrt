@@ -41,6 +41,7 @@
 #include <arpa/inet.h>
 
 #include "list.h"
+#include "flows/flows.h"
 
 /*
  * The size of the sendbuffer in bytes
@@ -101,8 +102,8 @@ typedef struct{
 	uint16_t flow_export_timeout;
 	uint16_t flow_max_lifetime;
 	uint16_t flow_object_cache_size;
+	enum flow_sampling_mode flow_sampling_mode;
 	uint32_t flow_sampling_polynom;
-	uint32_t flow_sampling_min_value;
 	uint32_t flow_sampling_max_value;
 #ifdef SUPPORT_ANONYMIZATION
 	uint8_t anonymization_key[16];
