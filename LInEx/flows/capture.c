@@ -238,13 +238,30 @@ void stop_capture(struct capture_info *info) {
   * \returns A pointer to the beginning of the packet or NULL if an error
   *          occured or no data was ready.
   */
-uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len) {
+uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len, bool first_call) {
 #ifdef SUPPORT_PACKET_MMAP
+	uint16_t start_frame_nr = info->current_frame_nr;
 	uint8_t *frame = info->buffer + (info->frame_size * info->current_frame_nr);
+	uint8_t *const start_frame = frame;
 	struct tpacket_hdr *hdr = (struct tpacket_hdr *) frame;
 
-	if (!hdr->tp_status)
+	if (!hdr->tp_status && !first_call)
 		return NULL;
+
+	while(!hdr->tp_status) {
+		info->current_frame_nr = (info->current_frame_nr + 1) % info->frame_nr;
+		frame = info->buffer
+				+ (info->frame_size * info->current_frame_nr);
+		hdr = (struct tpacket_hdr *) frame;
+
+		if (frame == start_frame) {
+			return NULL;
+		}
+	}
+
+	if (frame != start_frame) {
+		msg(MSG_INFO, "Frame != Start frame new index is: %d started at: %d First call: %d", info->current_frame_nr, start_frame_nr, first_call);
+	}
 
 	*len = hdr->tp_snaplen;
 	*orig_len = hdr->tp_len;

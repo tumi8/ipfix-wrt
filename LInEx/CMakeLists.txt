@@ -27,7 +27,7 @@ IF(WITH_ANONYMIZATION)
 ENDIF(WITH_ANONYMIZATION)
 
 SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG")
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wstrict-aliasing=2 -fstrict-aliasing -Os")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wstrict-aliasing=2 -fstrict-aliasing -O2")
 
 SUBDIRS(ipfixlolib)
 

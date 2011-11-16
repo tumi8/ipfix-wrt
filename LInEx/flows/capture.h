@@ -75,7 +75,7 @@ struct capture_info *start_capture(struct capture_session *session,
 								   const char *interface, size_t snapshot_len,
 								   struct sock_fprog *filter);
 void stop_capture(struct capture_info *info);
-uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len);
+uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len, bool first_call);
 void capture_packet_done(struct capture_info *info);
 int capture_statistics(const struct capture_info *info,
 					   struct capture_statistics *statistics);

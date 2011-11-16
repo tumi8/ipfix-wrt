@@ -106,13 +106,15 @@ void olsr_callback(int fd, struct olsr_callback_param *param) {
 	size_t len;
 	size_t orig_len;
 	uint8_t *buffer;
+	bool first_call = true;
 
-	while ((buffer = capture_packet(param->info, &len, &orig_len))) {
+	while ((buffer = capture_packet(param->info, &len, &orig_len, first_call))) {
 		struct pktinfo pkt = { buffer, buffer + len, buffer, orig_len };
 
 		parse_packet_header(&pkt);
 
 		capture_packet_done(param->info);
+		first_call = false;
 	}
 }
 
