@@ -26,6 +26,7 @@ enum olsr_ipfix_type {
 	HNANetworkIPv6=18, // ipv6Address
 	MIDAddressIPv4=19, // ipv4Address
 	MIDAddressIPv6=20, // ipv6Address
+	HTimeType=21, // uint8_t
 };
 
 enum olsr_template_id {

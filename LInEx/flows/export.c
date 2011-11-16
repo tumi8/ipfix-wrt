@@ -78,6 +78,7 @@ struct olsr_template_info templates[] = {
 { NodeTemplateIPv4,
 	(struct olsr_template_field []) {
 		{NodeAddressIPv4Type, ENTERPRISE_ID, sizeof(uint32_t)},
+		{HTimeType, ENTERPRISE_ID, sizeof(uint8_t)},
 		{ 293, 0, 0xffff },
 		{ 0 }
 	}
@@ -137,6 +138,7 @@ struct olsr_template_info templates[] = {
 { NodeTemplateIPv6,
 	(struct olsr_template_field []) {
 		{NodeAddressIPv6Type, ENTERPRISE_ID, sizeof(struct in6_addr)},
+		{HTimeType, ENTERPRISE_ID, sizeof(uint8_t)},
 		{ 293, 0, 0xffff },
 		{ 0 }
 	}
@@ -609,6 +611,7 @@ static size_t node_list_encode(network_protocol proto,
 static size_t node_len(const struct ip_addr_t *addr,
 					   const struct node_entry *node) {
 	size_t len = ip_addr_len(addr->protocol);
+	len += sizeof(uint8_t);
 
 	len += sizeof(uint8_t) + sizeof(uint16_t); // Variable length of list
 	len += sizeof(uint8_t); // Length of subTemplateMultiList header (Semantics field)
@@ -628,6 +631,10 @@ static size_t node_encode(const struct ip_addr_t *addr,
 	uint8_t *const buffer_start = buffer->pos;
 
 	pkt_put_ipaddress(&buffer->pos, &addr->addr, addr->protocol); // Node IP address
+	if (node->hello_set)
+		pkt_put_u8(&buffer->pos, node->hello_set->htime);
+	else
+		pkt_put_u8(&buffer->pos, 0);
 
 	uint8_t *len_ptr = pkt_put_variable_length(&buffer->pos);
 
