@@ -307,7 +307,7 @@ static int olsr_handle_tc_message(const u_char **data,
 		}
 
 		ts_entry->seq = message->ansn;
-		ts_entry->common.vtime = now + message->comm.vtime / 10e3;
+		ts_entry->common.vtime = now + message->comm.vtime / 1e3;
 
         if (message->comm.type == TC_LQ_MESSAGE) {
 			// The LQ value depends on the utilized LQ plugin hence we read the whole 32 bits here so they can
@@ -400,7 +400,7 @@ static int olsr_handle_hello_message(const u_char **data,
 			}
 
 			hs_entry->link_code = info.link_code.val;
-			hs_entry->common.vtime = now + message->comm.vtime / 10e3;
+			hs_entry->common.vtime = now + message->comm.vtime / 1e3;
 
 			if (message->comm.type == HELLO_LQ_MESSAGE) {
 				pkt_get_u32(data, &hs_entry->lq_parameters);
@@ -514,7 +514,7 @@ static int olsr_handle_hna_message(const uint8_t **data,
 
 		struct hna_set_entry *entry =
 				find_or_create_hna_set_entry(hs, &network, protocol, prefix_len);
-		entry->common.vtime = now + hdr->vtime / 10e3;
+		entry->common.vtime = now + hdr->vtime / 1e3;
 	}
 
 	return 0;
@@ -538,7 +538,7 @@ static int olsr_handle_mid_message(const uint8_t **data,
 
 		struct mid_set_entry *entry =
 				find_or_create_mid_set_entry(mid_set, &addr, protocol);
-		entry->common.vtime = now + hdr->vtime / 10e3;
+		entry->common.vtime = now + hdr->vtime / 1e3;
 	}
 
 	return 0;
