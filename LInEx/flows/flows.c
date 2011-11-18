@@ -244,7 +244,7 @@ int add_interface(flow_capture_session *session, char *device_name, bool enable_
 
 	struct sock_fprog filter = build_filter(session, &hwaddr);
 	struct capture_info *info = start_capture(session->capture_session,
-											  device_name, 256, &filter);
+											  device_name, 128, &filter);
 	if (!info) {
 		return -1;
 	}
