@@ -118,7 +118,7 @@ See ipfixlolib.h for details on how to use this library.
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/bio.h>
-#include "common/openssl/OpenSSL.h"
+#include "openssl/OpenSSL.h"
 #endif
 
 #ifdef __cplusplus

@@ -6,6 +6,13 @@ IF(WITH_SCTP)
 	ADD_DEFINITIONS(-DSUPPORT_SCTP)
 ENDIF(WITH_SCTP)
 
+OPTION(WITH_DTLS "Compile ipfixlolib with DTLS support." ON)
+IF(WITH_DTLS)
+	ADD_DEFINITIONS(-DSUPPORT_DTLS)
+ENDIF(WITH_DTLS)
+
+OPTION(WITH_STATIC_OPENSSL "Path to libssl.a/libcrypto.a when OpenSSL should be statically linked (only supported for OpenWRT target).")
+
 OPTION(WITH_COMPRESSION "Build compression support into ipfixlolib" ON)
 IF(WITH_COMPRESSION)
 	ADD_DEFINITIONS(-DSUPPORT_COMPRESSION)
