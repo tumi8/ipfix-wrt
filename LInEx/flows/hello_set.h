@@ -16,18 +16,24 @@ struct hello_set_entry {
 	struct hello_set_entry *next;
 };
 
-struct hello_set {
-	time_t htime;
-
+struct vtime_bucket_hello_set {
+	time_t vtime;
 	struct hello_set_entry *first;
 	struct hello_set_entry *last;
+	struct vtime_bucket_hello_set *next;
+};
+vtime_container_iterator(hello_set) {
+	struct vtime_bucket_hello_set *prev_bucket;
+	struct vtime_bucket_hello_set *bucket;
+	struct hello_set_entry *next_elem;
+	struct hello_set_entry *elem;
+	struct hello_set_entry *prev_elem;
+	uint8_t stop;
+};
+struct vtime_container_hello_set {
+	time_t htime;
+	struct vtime_bucket_hello_set *first;
+	struct vtime_bucket_hello_set *last;
 };
 
-struct hello_set *find_or_create_hello_set(node_set_hash *node_set,
-										   struct ip_addr_t *addr);
-struct hello_set_entry *find_or_create_hello_set_entry(struct hello_set *hs,
-													   union olsr_ip_addr *addr,
-													   network_protocol protocol);
-
-void expire_hello_set_entries(struct hello_set *set, time_t now);
 #endif

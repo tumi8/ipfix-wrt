@@ -2,9 +2,9 @@
 #include "topology_set.h"
 #include "hello_set.h"
 #include "hna_set.h"
+#include "mid_set.h"
 
 inline void init_set_entry_common(struct set_entry_common *common) {
-	common->vtime = 0;
 	common->created = 1;
 	common->changed = 0;
 	common->expired = 0;
@@ -94,7 +94,7 @@ void expire_node_set_entries(node_set_hash *node_set) {
 		struct node_entry *node = kh_value(node_set, k);
 
 		if (node->topology_set) {
-			expire_topology_set_entries(node->topology_set, now);
+			vtime_container_expire(node->topology_set, now);
 			if (node->topology_set->first == NULL
 					&& node->topology_set->last == NULL) {
 				free(node->topology_set);
@@ -103,7 +103,7 @@ void expire_node_set_entries(node_set_hash *node_set) {
 		}
 
 		if (node->hello_set) {
-			expire_hello_set_entries(node->hello_set, now);
+			vtime_container_expire(node->hello_set, now);
 			if (node->hello_set->first == NULL
 					&& node->hello_set->last == NULL) {
 				free(node->hello_set);
@@ -112,11 +112,20 @@ void expire_node_set_entries(node_set_hash *node_set) {
 		}
 
 		if (node->hna_set) {
-			expire_hna_set_entries(node->hna_set, now);
+			vtime_container_expire(node->hna_set, now);
 			if (node->hna_set->first == NULL
 					&& node->hna_set->last == NULL) {
 				free(node->hna_set);
 				node->hna_set = NULL;
+			}
+		}
+
+		if (node->mid_set) {
+			vtime_container_expire(node->mid_set, now);
+			if (node->mid_set->first == NULL
+					&& node->mid_set->last == NULL) {
+				free(node->mid_set);
+				node->mid_set = NULL;
 			}
 		}
 

@@ -33,36 +33,13 @@ struct export_status {
    */
 	khiter_t current_entry;
 
-	/**
-   * The topology set entry of the host which still needs to be exported.
-   *
-   * This value should be NULL if there are no more topology set entries
-   * which should be exported.
-   */
-	struct topology_set_entry *ts_entry;
+	vtime_container_iterator(topology_set) ts_iterator;
 
-	/**
-   * The hello set entry of the host which still needs to be exported.
-   *
-   * This value should be NULL if there are no more hello set entries
-   * which should be exported.
-   */
-	struct hello_set_entry *hs_entry;
+	vtime_container_iterator(hello_set) hs_iterator;
 
-	/**
-   * The HNA set entry of the host which still needs to be exported.
-   *
-   * This value should be NULL if there are no more HNA set entries
-   * which should be exported.
-   */
-	struct hna_set_entry *hna_set_entry;
-	/**
-   * The MID set entry of the host which still needs to be exported.
-   *
-   * This value should be NULL if there are no more MID set entries
-   * which should be exported.
-   */
-	struct mid_set_entry *mid_set_entry;
+	vtime_container_iterator(hna_set) hna_iterator;
+
+	vtime_container_iterator(mid_set) mid_iterator;
 };
 
 static u_char message_buffer[IPFIX_MAX_PACKETSIZE];
@@ -198,9 +175,9 @@ static void target_host_encode(const struct topology_set_entry *entry,
 							   struct buffer_info *buffer);
 
 static size_t target_host_list_len(const struct ip_addr_t *addr,
-								   const struct topology_set *ts);
+								   const vtime_container(topology_set) *ts);
 static size_t target_host_list_encode(const struct ip_addr_t *addr,
-									  const struct topology_set *ts,
+									  const vtime_container(topology_set) *ts,
 									  struct buffer_info *buffer,
 									  struct export_status *status);
 
@@ -230,9 +207,9 @@ static size_t neighbor_host_encode(const struct hello_set_entry *entry,
 								   struct buffer_info *buffer);
 
 static size_t neighbor_host_list_len(const struct ip_addr_t *addr,
-									 const struct hello_set *neighbor_set);
+									 const vtime_container(hello_set) *neighbor_set);
 static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
-										const struct hello_set *neighbor_set,
+										const vtime_container(hello_set) *neighbor_set,
 										struct buffer_info *buffer,
 										struct export_status *status);
 
@@ -242,9 +219,9 @@ static size_t hna_network_encode(const struct hna_set_entry *entry,
 								 struct buffer_info *buffer);
 
 static size_t hna_network_list_len(const struct ip_addr_t *addr,
-								   const struct hna_set *hna_set);
+								   const vtime_container(hna_set) *hna_set);
 static size_t hna_network_list_encode(const struct ip_addr_t *addr,
-									  const struct hna_set *hna_set,
+									  const vtime_container(hna_set) *hna_set,
 									  struct buffer_info *buffer,
 									  struct export_status *status);
 
@@ -254,9 +231,9 @@ static size_t mid_encode(const struct mid_set_entry *entry,
 						 struct buffer_info *buffer);
 
 static size_t mid_list_len(const struct ip_addr_t *addr,
-									 const struct mid_set *mid_set);
+									 const vtime_container(mid_set) *mid_set);
 static size_t mid_list_encode(const struct ip_addr_t *addr,
-										const struct mid_set *mid_set,
+										const vtime_container(mid_set) *mid_set,
 										struct buffer_info *buffer,
 										struct export_status *status);
 
@@ -348,7 +325,7 @@ static size_t neighbor_host_encode(const struct hello_set_entry *entry,
 }
 
 static size_t neighbor_host_list_len(const struct ip_addr_t *addr,
-									 const struct hello_set *neighbor_set) {
+									 const vtime_container(hello_set) *neighbor_set) {
 	if (!neighbor_set)
 		return 0;
 
@@ -356,7 +333,7 @@ static size_t neighbor_host_list_len(const struct ip_addr_t *addr,
 }
 
 static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
-										const struct hello_set *neighbor_set,
+										const vtime_container(hello_set) *neighbor_set,
 										struct buffer_info *buffer,
 										struct export_status *status) {
 	if (!neighbor_set)
@@ -383,17 +360,18 @@ static size_t neighbor_host_list_encode(const struct ip_addr_t *addr,
 
 	uint8_t *const list_begin = buffer->pos;
 	// Add topology set entries
-	if (status->hs_entry == NULL)
-		status->hs_entry = neighbor_set->first;
+	if (status->hs_iterator.elem == NULL)
+		vtime_container_init_iterator(neighbor_set, status->hs_iterator)
 
-	while (status->hs_entry != NULL) {
-		if (buffer->pos + neighbor_host_len(addr->protocol) > buffer->end)
+	vtime_container_foreach(status->hs_iterator) {
+		if (buffer->pos + neighbor_host_len(addr->protocol) > buffer->end) {
+			status->ts_iterator.stop = 1;
 			break;
+		}
 
-		neighbor_host_encode(status->hs_entry, addr->protocol, buffer);
-
-		status->hs_entry = status->hs_entry->next;
+		neighbor_host_encode(status->hs_iterator.elem, addr->protocol, buffer);
 	}
+
 	// Put the length of the written data
 	pkt_put_u16(&list_length, (uint16_t) (buffer->pos - list_begin));
 
@@ -416,7 +394,7 @@ static size_t hna_network_encode(const struct hna_set_entry *entry,
 }
 
 static size_t hna_network_list_len(const struct ip_addr_t *addr,
-									 const struct hna_set *hna_set) {
+									 const vtime_container(hna_set) *hna_set) {
 	if (!hna_set)
 		return 0;
 
@@ -424,7 +402,7 @@ static size_t hna_network_list_len(const struct ip_addr_t *addr,
 }
 
 static size_t hna_network_list_encode(const struct ip_addr_t *addr,
-										const struct hna_set *hna_set,
+										const vtime_container(hna_set) *hna_set,
 										struct buffer_info *buffer,
 										struct export_status *status) {
 	if (!hna_set)
@@ -451,17 +429,18 @@ static size_t hna_network_list_encode(const struct ip_addr_t *addr,
 
 	uint8_t *const list_begin = buffer->pos;
 	// Add topology set entries
-	if (status->hna_set_entry == NULL)
-		status->hna_set_entry = hna_set->first;
+	if (status->hna_iterator.elem == NULL)
+		vtime_container_init_iterator(hna_set, status->hna_iterator)
 
-	while (status->hna_set_entry != NULL) {
-		if (buffer->pos + hna_network_len(addr->protocol) > buffer->end)
+	vtime_container_foreach(status->hna_iterator) {
+		if (buffer->pos + hna_network_len(addr->protocol) > buffer->end) {
+			status->ts_iterator.stop = 1;
 			break;
+		}
 
-		hna_network_encode(status->hna_set_entry, addr->protocol, buffer);
-
-		status->hna_set_entry = status->hna_set_entry->next;
+		hna_network_encode(status->hna_iterator.elem, addr->protocol, buffer);
 	}
+
 	// Put the length of the written data
 	pkt_put_u16(&list_length, (uint16_t) (buffer->pos - list_begin));
 
@@ -483,7 +462,7 @@ static size_t mid_encode(const struct mid_set_entry *entry,
 }
 
 static size_t mid_list_len(const struct ip_addr_t *addr,
-									 const struct mid_set *mid_set) {
+									 const vtime_container(mid_set) *mid_set) {
 	if (!mid_set)
 		return 0;
 
@@ -491,7 +470,7 @@ static size_t mid_list_len(const struct ip_addr_t *addr,
 }
 
 static size_t mid_list_encode(const struct ip_addr_t *addr,
-										const struct mid_set *mid_set,
+										const vtime_container(mid_set) *mid_set,
 										struct buffer_info *buffer,
 										struct export_status *status) {
 	if (!mid_set)
@@ -517,18 +496,19 @@ static size_t mid_list_encode(const struct ip_addr_t *addr,
 	pkt_put_u16(&buffer->pos, 0);
 
 	uint8_t *const list_begin = buffer->pos;
-	// Add topology set entries
-	if (status->mid_set_entry == NULL)
-		status->mid_set_entry = mid_set->first;
 
-	while (status->mid_set_entry != NULL) {
-		if (buffer->pos + mid_len(addr->protocol) > buffer->end)
+	if (status->mid_iterator.elem == NULL)
+		vtime_container_init_iterator(mid_set, status->mid_iterator)
+
+	vtime_container_foreach(status->mid_iterator) {
+		if (buffer->pos + mid_len(addr->protocol) > buffer->end) {
+			status->mid_iterator.stop = 1;
 			break;
+		}
 
-		mid_encode(status->mid_set_entry, addr->protocol, buffer);
-
-		status->mid_set_entry = status->mid_set_entry->next;
+		mid_encode(status->mid_iterator.elem, addr->protocol, buffer);
 	}
+
 	// Put the length of the written data
 	pkt_put_u16(&list_length, (uint16_t) (buffer->pos - list_begin));
 
@@ -596,10 +576,10 @@ static size_t node_list_encode(network_protocol proto,
 
 		node_encode(&addr, node, buffer, status);
 
-		status->ts_entry = NULL;
-		status->hs_entry = NULL;
-		status->hna_set_entry = NULL;
-		status->mid_set_entry = NULL;
+		vtime_container_clear_iterator(status->ts_iterator);
+		vtime_container_clear_iterator(status->hs_iterator);
+		vtime_container_clear_iterator(status->hna_iterator);
+		vtime_container_clear_iterator(status->mid_iterator);
 	}
 
 	return (buffer->pos - buffer_start);
@@ -639,12 +619,12 @@ static size_t node_encode(const struct ip_addr_t *addr,
 	uint8_t *len_ptr = pkt_put_variable_length(&buffer->pos);
 
 	size_t list_len = sizeof(uint8_t);
-	uint8_t export_all = !status->ts_entry && !status->hs_entry
-			&& !status->hna_set_entry && !status->mid_set_entry;
+	uint8_t export_all = !status->ts_iterator.elem && !status->hs_iterator.elem
+			&& !status->hna_iterator.elem && !status->mid_iterator.elem;
 
 	pkt_put_u8(&buffer->pos, 0x3); // allOf semantics for subTemplateMultiList
 
-	if (status->ts_entry || export_all) {
+	if (status->ts_iterator.elem || export_all) {
 		// Only export target host list if there are unexported entries or
 		// if there are no pending neighbor entries.
 		list_len += target_host_list_encode(addr,
@@ -653,21 +633,21 @@ static size_t node_encode(const struct ip_addr_t *addr,
 											status);
 	}
 
-	if (status->hs_entry || export_all) {
+	if (status->hs_iterator.elem || export_all) {
 		list_len += neighbor_host_list_encode(addr,
 											  node->hello_set,
 											  buffer,
 											  status);
 	}
 
-	if (status->hna_set_entry || export_all) {
+	if (status->hna_iterator.elem || export_all) {
 		list_len += hna_network_list_encode(addr,
 											node->hna_set,
 											buffer,
 											status);
 	}
 
-	if (status->mid_set_entry || export_all) {
+	if (status->mid_iterator.elem || export_all) {
 		list_len += mid_list_encode(addr,
 									node->mid_set,
 									buffer,
@@ -683,7 +663,7 @@ static size_t node_encode(const struct ip_addr_t *addr,
   * Returns the minimum size of a target host list.
   */
 static size_t target_host_list_len(const struct ip_addr_t *addr,
-								   const struct topology_set *ts) {
+								   const vtime_container(topology_set) *ts) {
 	if (!ts)
 		return 0;
 
@@ -691,7 +671,7 @@ static size_t target_host_list_len(const struct ip_addr_t *addr,
 }
 
 static size_t target_host_list_encode(const struct ip_addr_t *addr,
-									  const struct topology_set *ts,
+									  const vtime_container(topology_set) *ts,
 									  struct buffer_info *buffer,
 									  struct export_status *status) {
 	if (!ts)
@@ -719,16 +699,17 @@ static size_t target_host_list_encode(const struct ip_addr_t *addr,
 	uint8_t *const list_begin = buffer->pos;
 
 	// Add topology set entries
-	if (status->ts_entry == NULL)
-		status->ts_entry = ts->first;
+	if (status->ts_iterator.elem == NULL) {
+		vtime_container_init_iterator(ts, status->ts_iterator)
+	}
 
-	while (status->ts_entry != NULL) {
-		if (buffer->pos + target_host_len(addr->protocol) > buffer->end)
+	vtime_container_foreach(status->ts_iterator) {
+		if (buffer->pos + target_host_len(addr->protocol) > buffer->end) {
+			status->ts_iterator.stop = 1;
 			break;
+		}
 
-		target_host_encode(status->ts_entry, addr->protocol, buffer);
-
-		status->ts_entry = status->ts_entry->next;
+		target_host_encode(status->ts_iterator.elem, addr->protocol, buffer);
 	}
 
 	pkt_put_u16(&list_length, (buffer->pos - list_begin));
@@ -768,10 +749,10 @@ void export_full(struct export_parameters *params) {
 	struct export_status status;
 	time_t timestamp = time(NULL);
 
-	status.ts_entry = NULL;
-	status.hs_entry = NULL;
-	status.hna_set_entry = NULL;
-	status.mid_set_entry = NULL;
+	vtime_container_clear_iterator(status.ts_iterator);
+	vtime_container_clear_iterator(status.hs_iterator);
+	vtime_container_clear_iterator(status.hna_iterator);
+	vtime_container_clear_iterator(status.mid_iterator);
 	status.current_entry = kh_begin(node_set);
 
 
@@ -785,7 +766,7 @@ void export_full(struct export_parameters *params) {
 		struct buffer_info info = { message_buffer, message_buffer, message_buffer + ipfix_get_remaining_space(exporter) };
 		size_t buffer_len = base_encode(timestamp, node_set, &info, &status);
 
-		DPRINTF("Status at %p %p %d %d", status.ts_entry, status.hs_entry, status.current_entry, kh_end(node_set));
+		DPRINTF("Status at %p %p %d %d", status.ts_iterator.elem, status.hs_iterator, status.current_entry, kh_end(node_set));
 
 		if (ipfix_put_data_field(exporter, message_buffer, buffer_len)) {
 			msg(MSG_ERROR, "Failed to add data record.");

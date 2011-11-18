@@ -251,6 +251,22 @@ int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol) {
     return 0;
 }
 
+inline int compare_topology_set_entry(struct topology_set_entry *entry,
+									  union olsr_ip_addr *addr,
+									  network_protocol protocol) {
+	if (protocol == IPv4) {
+		if (entry->dest_addr.v4.s_addr == addr->v4.s_addr)
+			return 1;
+	} else {
+#ifdef SUPPORT_IPV6
+		if (memcmp(&entry->dest_addr.v6, &addr->v6, sizeof(addr->v6)))
+			return 1;
+#endif
+	}
+
+	return 0;
+}
+
 /**
   * Attemps to parse a TC message.
   *
@@ -259,8 +275,7 @@ int olsr_parse_packet(struct pktinfo *pkt, network_protocol protocol) {
 static int olsr_handle_tc_message(const u_char **data,
 								  struct olsr_tc_message *message,
 								  network_protocol protocol) {
-    if ((message->comm.type == TC_LQ_MESSAGE && *data + OLSR_TC_LQ_MESSAGE_HEADER_LEN > message->comm.end) ||
-            (*data + OLSR_TC_MESSAGE_HEADER_LEN > message->comm.end)) {
+	if (*data + OLSR_TC_MESSAGE_HEADER_LEN > message->comm.end) {
         msg(MSG_ERROR, "Packet too short to be a valid OLSR TC packet.");
 
         return -1;
@@ -270,8 +285,8 @@ static int olsr_handle_tc_message(const u_char **data,
     pkt_ignore_u16(data); // Reserved
 
 	struct ip_addr_t addr = { protocol, message->comm.orig };
-	struct topology_set *ts = find_or_create_topology_set(node_set,
-														  &addr);
+	vtime_container(topology_set) *ts;
+	find_or_create_vtime_container(topology_set, ts, node_set, &addr);
 
     if (ts == NULL) {
         msg(MSG_ERROR, "Failed to allocate memory for topology set.");
@@ -279,35 +294,43 @@ static int olsr_handle_tc_message(const u_char **data,
         return -1;
     }
 
-    // Check if the packet is valid
-    struct topology_set_entry *ts_entry = ts->first;
+	vtime_container_iterator(topology_set) it;
+	vtime_container_init_iterator(ts, it);
 
-    while (ts_entry != NULL) {
-        if (SEQNO_GREATER_THAN(ts_entry->seq, message->ansn)) {
-            msg(MSG_INFO, "Stored sequence number is larger than received packet. Ignoring TC message.");
+	vtime_container_foreach(it) {
+		if (SEQNO_GREATER_THAN(it.elem->seq, message->ansn)) {
+			msg(MSG_INFO, "Stored sequence number is larger than received packet. Ignoring TC message.");
 
-            return 0;
-        }
-
-        ts_entry = ts_entry->next;
-    }
+			return 0;
+		}
+	}
 
 	time_t now = time(NULL);
-
+	time_t vtime = now + message->comm.vtime / 1e3;
     while (*data < message->comm.end) {
 		union olsr_ip_addr addr;
 
 		pkt_get_ip_address(data, &addr, protocol);
 
-		ts_entry = find_or_create_topology_set_entry(ts, &addr, protocol);
-		if (ts_entry == NULL) {
-			msg(MSG_ERROR, "Failed to allocate memory for topology set entry.");
+#define cmp(a, args...) compare_topology_set_entry(a, args)
+		vtime_container_init_iterator(ts, it);
+		vtime_container_find_entry(it, cmp, &addr, protocol);
 
-			return -1;
+		struct topology_set_entry *ts_entry = it.elem;
+		if (!ts_entry) {
+			// Create new entry
+			ts_entry = (struct topology_set_entry *) malloc (sizeof(struct topology_set_entry));
+			ts_entry->next = NULL;
+
+			init_set_entry_common(&ts_entry->common);
+			ts_entry->dest_addr = addr;
+
+			vtime_container_find_or_create_bucket(ts, it.bucket, vtime)
+			ll_append(it.bucket, ts_entry)
 		}
 
+		ts_entry->backoff = 0;
 		ts_entry->seq = message->ansn;
-		ts_entry->common.vtime = now + message->comm.vtime / 1e3;
 
         if (message->comm.type == TC_LQ_MESSAGE) {
 			// The LQ value depends on the utilized LQ plugin hence we read the whole 32 bits here so they can
@@ -316,22 +339,47 @@ static int olsr_handle_tc_message(const u_char **data,
 
 			pkt_get_u32(data, &ts_entry->lq_parameters);
 		}
+
+		if (it.bucket->vtime != vtime) {
+			vtime_container_move_to_bucket(ts, it, vtime)
+		}
     }
 
 	// Update old TC entries to expire within TC_INTERVAL if we have received
 	// updated information (see RFC 3626 - 9.3)
-	ts_entry = ts->first;
+	vtime_container_init_iterator(ts, it);
+	vtime_container_foreach(it) {
+		if (SEQNO_GREATER_THAN(message->ansn, it.elem->seq) && !it.elem->backoff) {
+			// Move to new bucket
+			struct topology_set_entry *entry = it.elem;
+			entry->backoff = 1;
+			ll_remove_iterator(it);
 
-	while (ts_entry) {
-		if (SEQNO_GREATER_THAN(message->ansn, ts_entry->seq))
-			ts_entry->common.vtime = now + TC_INTERVAL;
-
-		ts_entry = ts_entry->next;
+			vtime_bucket(topology_set) *bucket = NULL;
+			vtime_container_find_or_create_bucket(ts, bucket, now + TC_INTERVAL)
+			ll_append(bucket, entry);
+		}
 	}
 
     return 0;
 }
 
+
+inline int compare_hello_set_entry(struct hello_set_entry *entry,
+									  union olsr_ip_addr *addr,
+									  network_protocol protocol) {
+	if (protocol == IPv4) {
+		if (entry->neighbor_addr.v4.s_addr == addr->v4.s_addr)
+			return 1;
+	} else {
+#ifdef SUPPORT_IPV6
+		if (memcmp(&entry->neighbor_addr.v6, &addr->v6, sizeof(addr->v6)))
+			return 1;
+#endif
+	}
+
+	return 0;
+}
 
 /**
   * Attempts to parse an OLSR HELLO message.
@@ -349,8 +397,9 @@ static int olsr_handle_hello_message(const u_char **data,
 	time_t now = time(NULL);
 
 	struct ip_addr_t addr = { protocol, message->comm.orig };
-	struct hello_set *hs = find_or_create_hello_set(node_set,
-													&addr);
+	vtime_container(hello_set) *hs;
+	vtime_container_iterator(hello_set) it;
+	find_or_create_vtime_container(hello_set, hs, node_set, &addr);
 
 	if (hs == NULL) {
 		msg(MSG_ERROR, "Failed to allocate memory for hello set.");
@@ -363,6 +412,7 @@ static int olsr_handle_hello_message(const u_char **data,
     pkt_get_u8(data, &message->will);
 
 	hs->htime = now + message->htime;
+	time_t vtime = now + message->comm.vtime;
 
 	uint32_t neighbor_entry_len = ip_addr_len(protocol);
     if (message->comm.type == HELLO_LQ_MESSAGE)
@@ -389,21 +439,26 @@ static int olsr_handle_hello_message(const u_char **data,
 
 			pkt_get_ip_address(data, &addr, protocol);
 
-			struct hello_set_entry *hs_entry =
-					find_or_create_hello_set_entry(hs,
-												   &addr,
-												   protocol);
+#define hs_cmp(a, args...) compare_hello_set_entry(a, args)
+			vtime_container_init_iterator(hs, it);
+			vtime_container_find_entry(it, hs_cmp, &addr, protocol);
 
-			if (hs_entry == NULL) {
-				msg(MSG_ERROR, "Failed to allocate memory for hello_set_entry.");
-				return -1;
+			if (!it.elem) {
+				it.elem = (struct hello_set_entry *) malloc(sizeof(struct hello_set_entry));
+				init_set_entry_common(&it.elem->common);
+				it.elem->neighbor_addr = addr;
+				vtime_container_find_or_create_bucket(hs, it.bucket, vtime)
+				ll_append(it.bucket, it.elem)
 			}
 
-			hs_entry->link_code = info.link_code.val;
-			hs_entry->common.vtime = now + message->comm.vtime / 1e3;
+			it.elem->link_code = info.link_code.val;
 
 			if (message->comm.type == HELLO_LQ_MESSAGE) {
-				pkt_get_u32(data, &hs_entry->lq_parameters);
+				pkt_get_u32(data, &it.elem->lq_parameters);
+			}
+
+			if (it.bucket->vtime != vtime) {
+				vtime_container_move_to_bucket(hs, it, vtime)
 			}
         }
     }
@@ -472,6 +527,25 @@ static int olsr_parse_message(const u_char **data,
     return 0;
 }
 
+inline int compare_hna_set_entry(struct hna_set_entry *hs_entry,
+									  union olsr_ip_addr *addr,
+									  uint8_t netmask,
+									  network_protocol protocol) {
+	if (protocol == IPv4) {
+		if (hs_entry->network.v4.s_addr == addr->v4.s_addr
+				&& hs_entry->netmask == netmask)
+			return 1;
+	} else {
+#ifdef SUPPORT_IPV6
+		if (memcmp(&hs_entry->network.v6, &addr->v6, sizeof(addr->v6))
+				&& hs_entry->netmask == netmask)
+			return 1;
+#endif
+	}
+
+	return 0;
+}
+
 static int olsr_handle_hna_message(const uint8_t **data,
 								   struct olsr_common *hdr,
 								   network_protocol protocol) {
@@ -480,11 +554,12 @@ static int olsr_handle_hna_message(const uint8_t **data,
 	union olsr_ip_addr network;
 	union olsr_ip_addr netmask;
 	time_t now = time(NULL);
+	time_t vtime = now + hdr->vtime;
 
 	struct ip_addr_t orig = { protocol, hdr->orig };
-	struct hna_set *hs = find_or_create_hna_set(node_set,
-												&orig);
-
+	vtime_container(hna_set) *hs;
+	vtime_container_iterator(hna_set) it;
+	find_or_create_vtime_container(hna_set, hs, node_set, &orig);
 
 	while (*data + (2 * network_len) <= hdr->end) {
 		pkt_get_ip_address(data, &network, protocol);
@@ -504,7 +579,6 @@ static int olsr_handle_hna_message(const uint8_t **data,
 #endif
 		}
 
-
 		for (prefix_len = 0; *n && prefix_len < (network_len * 8);) {
 			prefix_len++;
 			*n &= *n - 1;
@@ -512,33 +586,75 @@ static int olsr_handle_hna_message(const uint8_t **data,
 				n++;
 		}
 
-		struct hna_set_entry *entry =
-				find_or_create_hna_set_entry(hs, &network, protocol, prefix_len);
-		entry->common.vtime = now + hdr->vtime / 1e3;
+#define hna_cmp(a, args...) compare_hna_set_entry(a, args)
+		vtime_container_init_iterator(hs, it);
+		vtime_container_find_entry(it, hna_cmp, &network, prefix_len, protocol);
+
+		if (!it.elem) {
+			it.elem = (struct hna_set_entry *) malloc(sizeof(struct hna_set_entry));
+			init_set_entry_common(&it.elem->common);
+
+			it.elem->network = network;
+			it.elem->netmask = prefix_len;
+
+			vtime_container_find_or_create_bucket(hs, it.bucket, vtime)
+			ll_append(it.bucket, it.elem)
+		}
+
+		if (it.bucket->vtime != vtime) {
+			vtime_container_move_to_bucket(hs, it, vtime)
+		}
 	}
 
 	return 0;
 }
 
+inline int compare_mid_set_entry(struct mid_set_entry *entry,
+									  union olsr_ip_addr *addr,
+									  network_protocol protocol) {
+	if (protocol == IPv4) {
+		if (entry->addr.v4.s_addr == addr->v4.s_addr)
+			return 1;
+	} else {
+#ifdef SUPPORT_IPV6
+		if (memcmp(&entry->addr.v6, &addr->v6, sizeof(addr->v6)))
+			return 1;
+#endif
+	}
+
+	return 0;
+}
 
 static int olsr_handle_mid_message(const uint8_t **data,
 								   struct olsr_common *hdr,
 								   network_protocol protocol) {
 	uint16_t network_len = ip_addr_len(protocol);
-	time_t now = time(NULL);
+	time_t vtime = time(NULL) + hdr->vtime;
 	union olsr_ip_addr addr;
 
 	struct ip_addr_t orig = { protocol, hdr->orig };
-	struct mid_set *mid_set = find_or_create_mid_set(node_set,
-													 &orig);
-
+	vtime_container(mid_set) *set;
+	vtime_container_iterator(mid_set) it;
+	find_or_create_vtime_container(mid_set, set, node_set, &orig);
 
 	while (*data + (2 * network_len) <= hdr->end) {
 		pkt_get_ip_address(data, &addr, protocol);
 
-		struct mid_set_entry *entry =
-				find_or_create_mid_set_entry(mid_set, &addr, protocol);
-		entry->common.vtime = now + hdr->vtime / 1e3;
+#define mid_cmp(a, args...) compare_mid_set_entry(a, args)
+		vtime_container_init_iterator(set, it);
+		vtime_container_find_entry(it, mid_cmp, &addr, protocol);
+
+		if (!it.elem) {
+			it.elem = (struct mid_set_entry *) malloc(sizeof(struct mid_set_entry));
+			it.elem->addr = addr;
+
+			vtime_container_find_or_create_bucket(set, it.bucket, vtime)
+			ll_append(it.bucket, it.elem)
+		}
+
+		if (it.bucket->vtime != vtime) {
+			vtime_container_move_to_bucket(set, it, vtime)
+		}
 	}
 
 	return 0;
