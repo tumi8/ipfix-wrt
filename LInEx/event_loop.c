@@ -172,8 +172,10 @@ int event_loop_add_timer(uint32_t ms_timeout, event_timer_callback callback, voi
 }
 
 int event_loop_run() {
+	int timeout = global_event_loop.min_timer_value;
+
 	while (1) {
-		int ret = poll(global_event_loop.fds, global_event_loop.fd_entries.size, global_event_loop.min_timer_value);
+		int ret = poll(global_event_loop.fds, global_event_loop.fd_entries.size, timeout);
 
 		if (ret == -1) {
 			msg(MSG_ERROR, "Error occured while polling: %s", strerror(errno));
@@ -213,7 +215,8 @@ int event_loop_run() {
 
 		size_t i;
 		struct timeval now;
-
+		int diff;
+		timeout = global_event_loop.min_timer_value;
 		gettimeofday(&now, NULL);
 
 		for (i = 0; i < global_event_loop.timer_entries.size; i++) {
@@ -226,6 +229,11 @@ int event_loop_run() {
 
 				add_time(&now, &timer_entry->next_run, timer_entry->ms_timeout);
 			}
+
+			diff = (timer_entry->next_run.tv_sec - now.tv_sec) * 1000 + (timer_entry->next_run.tv_usec - now.tv_usec) / 1000;
+
+			if (diff < timeout && diff != 0)
+				timeout = diff;
 		}
 	}
 
