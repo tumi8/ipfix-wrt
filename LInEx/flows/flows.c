@@ -510,10 +510,16 @@ static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, 
 	if (k == kh_end(flow_database)) {
         int ret;
 
-        if (!(hdr->syn == 1 && hdr->ack == 0)) {
+		/*
+		Accept any packet - not only new connections: packets may be rerouted
+		due to link failures and the failover path would not pick up the flow.
+
+		if (!(hdr->syn == 1 && hdr->ack == 0)) {
             // This is not a new connection - ignore it
             return -1;
         }
+
+		*/
 
 		info = (flow_info *) allocate_object(session->flow_info_cache);
 
