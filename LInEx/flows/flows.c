@@ -44,18 +44,19 @@ void capture_callback(int fd, struct flow_capture_callback_param *param);
 void capture_error_callback(int fd, struct flow_capture_callback_param *param);
 
 /**
-  * Compiled BPF filter: tcpdump -dd "not ether src de:ad:be:ef:aa:aa and (ip or ip6)"
+  * Compiled BPF filter: tcpdump -dd "not ether dst de:ad:be:ef:aa:aa and ether src de:ad:be:ef:aa:aa"
   */
-static struct sock_filter egress_filter[] = {
-    { 0x20, 0, 0, 0x00000008 },
-    { 0x15, 0, 2, 0xbeefaaaa },
-    { 0x28, 0, 0, 0x00000006 },
-    { 0x15, 4, 0, 0x0000dead },
-    { 0x28, 0, 0, 0x0000000c },
-    { 0x15, 1, 0, 0x00000800 },
-    { 0x15, 0, 1, 0x000086dd },
-    { 0x6, 0, 0, 0x0000ffff },
-    { 0x6, 0, 0, 0x00000000 }
+static const struct sock_filter egress_filter[] = {
+	{ 0x20, 0, 0, 0x00000002 },
+	{ 0x15, 0, 2, 0xbeefaaaa },
+	{ 0x28, 0, 0, 0x00000000 },
+	{ 0x15, 5, 0, 0x0000dead },
+	{ 0x20, 0, 0, 0x00000008 },
+	{ 0x15, 0, 3, 0xbeefaaaa },
+	{ 0x28, 0, 0, 0x00000006 },
+	{ 0x15, 0, 1, 0x0000dead },
+	{ 0x6, 0, 0, 0x0000ffff },
+	{ 0x6, 0, 0, 0x00000000 },
 };
 
 /**
@@ -64,12 +65,21 @@ static struct sock_filter egress_filter[] = {
   * Note: It currently only supports IPv4 so IPv6 capturing will not work
   *       at all.
   */
-static struct sock_filter hash_filter[] = {
+static const struct sock_filter hash_filter[] = {
 #define PRIME 86477
+	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0x8), // Load ethernet source MAC
+	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xbeefaaaa, 0, 3), // Check if it matches a sentinel value
+	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 0x6), // Load second part of source MAC
+	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xdead, 0, 1), // Check if the second part matches the sentinel
+	BPF_STMT(BPF_JMP | BPF_JA, 47), // Discard packet if it matches we only want packets targetting ourselfs
+	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0x2), // Load ethernet dst MAC
+	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xbeefaaaa, 0, 45), // Check if matches sentinel
+	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 0x0), // Load ethernet dst MAC 2nd
+	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xdead, 0, 43), // Check second part for sentinel
 	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 12), // Load ethernet proto
 	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0x800, 0, 41), // Abort if this is not IPv4
 	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 20), // Load fragmentation info
-	BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, 0x1ffff, 39, 0), // Check if it is the first fragment - if not reject
+	BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, 0x1fff, 39, 0), // Check if it is the first fragment - if not reject
 	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 26), // Load source address
 	BPF_STMT(BPF_ST, 0), // Store in scratch memory 0x0
 	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 30), // Load destination address
@@ -109,10 +119,10 @@ static struct sock_filter hash_filter[] = {
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
 	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
 	// RETURN_VALUE begins here
-	BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0xdeadbeef, 1, 0),
+	BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0xdeadbeef, 0, 0),
 	BPF_STMT(BPF_RET | BPF_K, 0xffff),
 	// REJECT begins here
-	BPF_STMT(BPF_RET | BPF_K, 0)
+	BPF_STMT(BPF_RET | BPF_K, 0x0)
 };
 void set_sampling_polynom(uint32_t polynom) {
 	crc_polynom = polynom;
@@ -185,19 +195,24 @@ error:
 static struct sock_fprog build_filter(flow_capture_session *session,
 									  const struct sockaddr *hwaddr) {
     struct sock_fprog prog = { 0, NULL };
+	struct sock_filter *filter = NULL;
+	const char *macaddr = hwaddr->sa_data;
 
 	switch (session->sampling_mode) {
 	case CRC32SamplingMode:
 	case NullSamplingMode:
 		if (hwaddr->sa_family == ARPHRD_ETHER) {
-			struct sock_filter *filter = egress_filter;
+			filter = (struct sock_filter *) malloc(sizeof(egress_filter));
+			memcpy(filter, egress_filter, sizeof(egress_filter));
 
-			const char *macaddr = hwaddr->sa_data;
-
-			// Last 32 bit of MAC address
-			filter[1].k = ntohl(*((uint32_t *) macaddr + 2));
-			// First 16 bit of MAC address
-			filter[3].k = ntohs(*((uint16_t *) macaddr));
+			int i;
+			for (i = 0; i < sizeof(egress_filter) / sizeof(struct sock_filter); i++) {
+				if (filter[i].k == 0xbeefaaaa) {
+					filter[i].k = ntohl(*((uint32_t *) (macaddr + 2)));
+				} else if (filter[i].k == 0xdead) {
+					filter[i].k = ntohs(*((uint16_t *) macaddr));
+				}
+			}
 
 			prog.len = sizeof(egress_filter) / sizeof(struct sock_filter);
 			prog.filter = filter;
@@ -207,14 +222,22 @@ static struct sock_fprog build_filter(flow_capture_session *session,
 	case BPFSamplingMode:
 	{
 		// Insert sampling max value into filter
+		filter = (struct sock_filter *) malloc(sizeof(hash_filter));
+		memcpy(filter, hash_filter, sizeof(hash_filter));
 		int i;
 		for (i = 0; i < sizeof(hash_filter) / sizeof(struct sock_filter); i++) {
-			if (hash_filter[i].k == 0xdeadbeef) {
-				hash_filter[i].k = session->sampling_max_value;
+			if (filter[i].k == 0xbeefaaaa) {
+				filter[i].k = ntohl(*((uint32_t *) (macaddr + 2)));
+			} else if (filter[i].k == 0xdead) {
+				filter[i].k = ntohs(*((uint16_t *) macaddr));
+			} else if (filter[i].k == 0xdeadbeef) {
+				filter[i].k = session->sampling_max_value;
 			}
 		}
 
-		prog.filter = hash_filter;
+		DPRINTF("Using BPF sampling mode");
+
+		prog.filter = filter;
 		prog.len = sizeof(hash_filter) / sizeof(struct sock_filter);
 		break;
 	}
@@ -245,6 +268,7 @@ int add_interface(flow_capture_session *session, char *device_name, bool enable_
 	struct sock_fprog filter = build_filter(session, &hwaddr);
 	struct capture_info *info = start_capture(session->capture_session,
 											  device_name, 128, &filter);
+	free(filter.filter);
 	if (!info) {
 		return -1;
 	}
