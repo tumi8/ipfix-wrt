@@ -220,11 +220,11 @@ int main(int argc, char **argv)
 	node_set = kh_init(2);
 
 	struct export_parameters params = { send_exporter, node_set };
-	event_loop_add_timer(120000, (void (*)(void *)) &export_full, &params);
+	event_loop_add_timer(conf->export_olsr_interval, (void (*)(void *)) &export_full, &params);
 
 	// Add timer to export flows
 	struct export_flow_parameter flow_param = { send_exporter, &flow_session };
-	event_loop_add_timer(60000, (void (*)(void *)) &export_flows, &flow_param);
+	event_loop_add_timer(conf->export_flow_interval, (void (*)(void *)) &export_flows, &flow_param);
 
 	// Add timer to export records
 	struct export_record_parameters record_params = { send_exporter, conf, xmlfh };

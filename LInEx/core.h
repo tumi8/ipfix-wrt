@@ -109,6 +109,8 @@ typedef struct{
 	uint8_t anonymization_key[16];
 	uint8_t anonymization_pad[16];
 #endif
+	uint32_t export_flow_interval;
+	uint32_t export_olsr_interval;
 } config_file_descriptor;
 
 /**

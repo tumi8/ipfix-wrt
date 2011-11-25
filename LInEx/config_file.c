@@ -56,6 +56,8 @@ regex_t regex_compression;
 regex_t regex_flow_params;
 regex_t regex_flow_sampling;
 regex_t regex_anonymization;
+regex_t regex_export_flow_interval;
+regex_t regex_export_olsr_interval;
 regex_t regex_odid;
 regex_t regex_xmlfile;
 regex_t regex_xmlpostprocessing;
@@ -88,6 +90,8 @@ config_file_descriptor* create_config_file_descriptor(){
 	memset(current_config_file->anonymization_key, 0, sizeof(current_config_file->anonymization_key));
 	memset(current_config_file->anonymization_pad, 0, sizeof(current_config_file->anonymization_pad));
 #endif
+	current_config_file->export_flow_interval = 60000;
+	current_config_file->export_olsr_interval = 120000;
 	current_config_file->observation_domain_id = OBSERVATION_DOMAIN_STANDARD_ID;
 	current_config_file->xmlfile = NULL;
 	current_config_file->xmlpostprocessing = NULL;
@@ -173,6 +177,8 @@ void init_config_regex(){
 #ifdef SUPPORT_ANONYMIZATION
 	regcomp(&regex_anonymization,"^[ \t]*ANONYMIZATION[ \t]+([A-Fa-f0-9]+)[ \t]+([A-Fa-f0-9]+)[ \t\n]*$", REG_EXTENDED);
 #endif
+	regcomp(&regex_export_flow_interval, "^[ \t]*EXPORT_FLOW_INTERVAL[ \t]+([0-9]+)", REG_EXTENDED);
+	regcomp(&regex_export_olsr_interval, "^[ \t]*EXPORT_OLSR_INTERVAL[ \t]+([0-9]+)", REG_EXTENDED);
 	regcomp(&regex_odid,"^[ \t]*ODID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlfile,"^[ \t]*XMLFILE[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlpostprocessing,"^[ \t]*XMLPOSTPROCESSING[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
@@ -197,6 +203,8 @@ void deinit_config_regex() {
 #ifdef SUPPORT_ANONYMIZATION
 	regfree(&regex_anonymization);
 #endif
+	regfree(&regex_export_flow_interval);
+	regfree(&regex_export_olsr_interval);
 	regfree(&regex_odid);
 	regfree(&regex_xmlfile);
 	regfree(&regex_xmlpostprocessing);
@@ -533,6 +541,35 @@ int process_anonymization_line(char* line, int in_line){
 }
 #endif
 
+/**
+ * Processes the export_flow_interval line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
+int process_export_flow_interval_line(char* line, int in_line){
+	if(regexec(&regex_export_flow_interval,line,2,config_buffer,0)){
+		THROWEXCEPTION("EXPORT_FLOW_INTERVAL line %d in config file is malformed:\n%s",in_line,line);
+	}
+
+	current_config_file->export_flow_interval = extract_uint_from_regmatch(&config_buffer[1], line) * 1000;
+
+	return 1;
+}
+
+/**
+ * Processes the export_olsr_interval line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
+int process_export_olsr_interval_line(char* line, int in_line){
+	if(regexec(&regex_export_olsr_interval,line,2,config_buffer,0)){
+		THROWEXCEPTION("EXPORT_OLSR_INTERVAL line %d in config file is malformed:\n%s",in_line,line);
+	}
+
+	current_config_file->export_olsr_interval = extract_uint_from_regmatch(&config_buffer[1], line) * 1000;
+
+	return 1;
+}
 
 /**
  * Processes an observation domain ID line (source ID line) in the config file
@@ -662,6 +699,10 @@ int process_config_line(char* line, int in_line){
 			} else if (!regexec(&regex_anonymization,line,2,config_buffer,0)) {
 				process_anonymization_line(line, in_line);
 #endif
+			} else if (!regexec(&regex_export_flow_interval, line, 2, config_buffer, 0)) {
+				process_export_flow_interval_line(line, in_line);
+			} else if (!regexec(&regex_export_olsr_interval, line, 2, config_buffer, 0)) {
+				process_export_olsr_interval_line(line, in_line);
 			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
 				process_odid_line(line, in_line);
 			} else if(!regexec(&regex_xmlrecord_selector,line,2,config_buffer,0)) {
