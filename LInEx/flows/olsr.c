@@ -6,9 +6,11 @@
 #include "olsr_protocol.h"
 #include "capture.h"
 #include "ip_helper.h"
+#include "iface.h"
 #include "../event_loop.h"
 #include "../ipfixlolib/msg.h"
 
+#include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -23,6 +25,10 @@
   * Compiled BPF filter: udp and dst port 698
   */
 static struct sock_filter olsr_filter[] = {
+	{ 0x20, 0, 0, 0x00000008 },
+	{ 0x15, 0, 2, 0xbeefaaaa },
+	{ 0x28, 0, 0, 0x00000006 },
+	{ 0x15, 15, 0, 0x0000dead },
 	{ 0x28, 0, 0, 0x0000000c },
 	{ 0x15, 0, 4, 0x000086dd },
 	{ 0x30, 0, 0, 0x00000014 },
@@ -81,10 +87,39 @@ void olsr_error_callback(int fd, struct olsr_callback_param *info);
 
 struct capture_info *olsr_add_capture_interface(struct capture_session *session,
 												const char *interface) {
+
 	struct sock_fprog filter = {
 		sizeof(olsr_filter) / sizeof(struct sock_filter),
-		olsr_filter
+		(struct sock_filter *) malloc(sizeof(olsr_filter))
 	};
+
+	struct ifreq req;
+	int fd = -1;
+
+	if (iface_info(interface, &req, &fd) == -1) {
+		return NULL;
+	}
+
+	struct sockaddr hwaddr;
+	if (iface_hwaddr(&req, fd, &hwaddr)) {
+		close(fd);
+		return NULL;
+	}
+
+	close(fd);
+	const char *macaddr = hwaddr.sa_data;
+
+	memcpy(filter.filter, olsr_filter, sizeof(olsr_filter));
+	int i;
+	for (i = 0; i < sizeof(olsr_filter) / sizeof(struct sock_filter); i++) {
+		if (filter.filter[i].k == 0xbeefaaaa) {
+			filter.filter[i].k = ntohl(*((uint32_t *) (macaddr + 2)));
+		} else if (filter.filter[i].k == 0xdead) {
+			filter.filter[i].k = ntohs(*((uint16_t *) macaddr));
+		}
+	}
+
+	close(fd);
 
 	struct capture_info *info = start_capture(session, interface, 2048, &filter);
 	if (!info)
