@@ -179,8 +179,8 @@ int main(int argc, char **argv)
 		set_sampling_polynom(conf->flow_sampling_polynom);
 
 	if (start_flow_capture_session(&flow_session,
-								   conf->flow_export_timeout,
-								   conf->flow_max_lifetime,
+								   conf->flow_inactive_timeout,
+								   conf->flow_active_timeout,
 								   conf->flow_object_cache_size,
 								   conf->flow_sampling_mode,
 								   conf->flow_sampling_max_value))

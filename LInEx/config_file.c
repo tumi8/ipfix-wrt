@@ -80,8 +80,8 @@ config_file_descriptor* create_config_file_descriptor(){
 	current_config_file->interfaces = list_create();
 	current_config_file->compression_method = NULL;
 	current_config_file->compression_method_params = NULL;
-	current_config_file->flow_export_timeout = 5;
-	current_config_file->flow_max_lifetime = 120;
+	current_config_file->flow_inactive_timeout = 15;
+	current_config_file->flow_active_timeout = 120;
 	current_config_file->flow_object_cache_size = 64;
 	current_config_file->flow_sampling_mode = NullSamplingMode;
 	current_config_file->flow_sampling_polynom = 0;
@@ -453,8 +453,8 @@ int process_flow_params_line(char* line, int in_line){
 		THROWEXCEPTION("FLOW_PARAMS line %d in config file is malformed:\n%s",in_line,line);
 	}
 
-	current_config_file->flow_export_timeout = extract_uint_from_regmatch(&config_buffer[1], line);
-	current_config_file->flow_max_lifetime = extract_uint_from_regmatch(&config_buffer[2], line);
+	current_config_file->flow_inactive_timeout = extract_uint_from_regmatch(&config_buffer[1], line);
+	current_config_file->flow_active_timeout = extract_uint_from_regmatch(&config_buffer[2], line);
 	current_config_file->flow_object_cache_size = extract_uint_from_regmatch(&config_buffer[3], line);
 
 	return 1;

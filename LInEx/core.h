@@ -99,8 +99,8 @@ typedef struct{
 	char* xmlpostprocessing;
 	char* compression_method;
 	char* compression_method_params;
-	uint16_t flow_export_timeout;
-	uint16_t flow_max_lifetime;
+	uint16_t flow_inactive_timeout;
+	uint16_t flow_active_timeout;
 	uint16_t flow_object_cache_size;
 	enum flow_sampling_mode flow_sampling_mode;
 	uint32_t flow_sampling_polynom;
