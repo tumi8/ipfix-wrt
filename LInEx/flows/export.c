@@ -64,6 +64,7 @@ struct olsr_template_info templates[] = {
 	(struct olsr_template_field []) {
 		{TargetHostIPv4Type, ENTERPRISE_ID, sizeof(uint32_t)},
 		{OLSRSequenceNumberType, ENTERPRISE_ID, sizeof(uint16_t) },
+		{TargetHostLQType, ENTERPRISE_ID, sizeof(uint32_t) },
 		{ 0 }
 	}
 },
@@ -721,7 +722,7 @@ static size_t target_host_list_encode(const struct ip_addr_t *addr,
   * Returns the minium size of a target host data record.
   */
 static size_t target_host_len(network_protocol protocol) {
-	return sizeof(uint16_t) + ip_addr_len(protocol);
+	return sizeof(uint16_t) + ip_addr_len(protocol) + sizeof(uint32_t);
 }
 
 static void target_host_encode(const struct topology_set_entry *entry,
@@ -729,6 +730,7 @@ static void target_host_encode(const struct topology_set_entry *entry,
 							   struct buffer_info *buffer) {
 	pkt_put_ipaddress(&buffer->pos, &entry->dest_addr, protocol);
 	pkt_put_u16(&buffer->pos, entry->seq);
+	pkt_put_u32(&buffer->pos, entry->lq_parameters);
 }
 
 /**
@@ -825,8 +827,8 @@ static void export_flow_database(khash_t(1) *flow_database,
 		flow_key *key = kh_key(flow_database, k);
 		flow_info *info = kh_value(flow_database, k);
 
-		if ((now - info->last_packet_timestamp < session->export_timeout)
-				&& now - info->first_packet_timestamp > session->max_flow_lifetime)
+		if ((now - info->last_packet_timestamp < session->flow_inactive_timeout)
+				&& now - info->first_packet_timestamp > session->flow_active_timeout)
 			continue;
 
 		kh_del(1, flow_database, k);

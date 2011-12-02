@@ -27,25 +27,26 @@ enum olsr_ipfix_type {
 	MIDAddressIPv4=19, // ipv4Address
 	MIDAddressIPv6=20, // ipv6Address
 	HTimeType=21, // uint8_t
+	TargetHostLQType=22 // uint32_t
 };
 
 enum olsr_template_id {
-	BaseTemplate = 888,
-	NodeTemplateIPv4,
-	TargetHostTemplateIPv4,
-	NeighborHostTemplateIPv4,
-	FlowTemplateIPv4,
-	CaptureStatisticsTemplate,
-	HNATemplateIPv4,
-	MIDTemplateIPv4,
+	BaseTemplate=1,
+	NodeTemplateIPv4=2,
+	TargetHostTemplateIPv4=3,
+	NeighborHostTemplateIPv4=4,
+	HNATemplateIPv4=5,
+	MIDTemplateIPv4=6,
 #ifdef SUPPORT_IPV6
-	NodeTemplateIPv6,
-	TargetHostTemplateIPv6,
-	NeighborHostTemplateIPv6,
-	FlowTemplateIPv6,
-	HNATemplateIPv6,
-	MIDTemplateIPv6
+	NodeTemplateIPv6=7,
+	TargetHostTemplateIPv6=8,
+	NeighborHostTemplateIPv6=9,
+	HNATemplateIPv6=10,
+	MIDTemplateIPv6=11,
+	FlowTemplateIPv6=12,
 #endif
+	FlowTemplateIPv4=13,
+	CaptureStatisticsTemplate=14,
 };
 
 struct olsr_template_field {
