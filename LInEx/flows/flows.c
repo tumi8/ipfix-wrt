@@ -44,16 +44,12 @@ void capture_callback(int fd, struct flow_capture_callback_param *param);
 void capture_error_callback(int fd, struct flow_capture_callback_param *param);
 
 /**
-  * Compiled BPF filter: tcpdump -dd "not ether dst de:ad:be:ef:aa:aa and ether src de:ad:be:ef:aa:aa"
+  * Compiled BPF filter: tcpdump -dd ether dst de:ad:be:ef:aa:aa
   */
 static const struct sock_filter egress_filter[] = {
 	{ 0x20, 0, 0, 0x00000002 },
-	{ 0x15, 0, 2, 0xbeefaaaa },
-	{ 0x28, 0, 0, 0x00000000 },
-	{ 0x15, 5, 0, 0x0000dead },
-	{ 0x20, 0, 0, 0x00000008 },
 	{ 0x15, 0, 3, 0xbeefaaaa },
-	{ 0x28, 0, 0, 0x00000006 },
+	{ 0x28, 0, 0, 0x00000000 },
 	{ 0x15, 0, 1, 0x0000dead },
 	{ 0x6, 0, 0, 0x0000ffff },
 	{ 0x6, 0, 0, 0x00000000 },
@@ -67,11 +63,7 @@ static const struct sock_filter egress_filter[] = {
   */
 static const struct sock_filter hash_filter[] = {
 #define PRIME 86477
-	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0x8), // Load ethernet source MAC
-	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xbeefaaaa, 0, 3), // Check if it matches a sentinel value
-	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 0x6), // Load second part of source MAC
-	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xdead, 0, 1), // Check if the second part matches the sentinel
-	BPF_STMT(BPF_JMP | BPF_JA, 47), // Discard packet if it matches we only want packets targetting ourselfs
+#define PRIME2 1500450271
 	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0x2), // Load ethernet dst MAC
 	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xbeefaaaa, 0, 45), // Check if matches sentinel
 	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 0x0), // Load ethernet dst MAC 2nd
@@ -101,10 +93,10 @@ static const struct sock_filter hash_filter[] = {
 	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
 	BPF_STMT(BPF_LDX | BPF_MEM, 0x2), // Load source port
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME2),
 	BPF_STMT(BPF_LDX | BPF_MEM, 0x3), // Load destination port
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME2),
 	BPF_STMT(BPF_JMP | BPF_JA, 11),
 	// SWAPPED begins here
 	BPF_STMT(BPF_LD | BPF_MEM, 0x1), // Load destination address
@@ -114,10 +106,10 @@ static const struct sock_filter hash_filter[] = {
 	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
 	BPF_STMT(BPF_LDX | BPF_MEM, 0x3), // Load destination port
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME2),
 	BPF_STMT(BPF_LDX | BPF_MEM, 0x2), // Load source port
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_ALU | BPF_MUL, PRIME2),
 	// RETURN_VALUE begins here
 	BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0xdeadbeef, 0, 0),
 	BPF_STMT(BPF_RET | BPF_K, 0xffff),
@@ -130,8 +122,8 @@ void set_sampling_polynom(uint32_t polynom) {
 }
 
 int start_flow_capture_session(flow_capture_session *session,
-							   uint16_t export_timeout,
-							   uint16_t max_flow_lifetime,
+							   uint16_t flow_inactive_timeout,
+							   uint16_t flow_active_timeout,
 							   uint16_t object_cache_size,
 							   enum flow_sampling_mode sampling_mode,
 							   uint32_t sampling_max_value) {
@@ -163,8 +155,8 @@ int start_flow_capture_session(flow_capture_session *session,
 	if (!session->capture_session)
 		goto error;
 
-    session->export_timeout = export_timeout;
-	session->max_flow_lifetime = max_flow_lifetime;
+	session->flow_inactive_timeout = flow_inactive_timeout;
+	session->flow_active_timeout = flow_active_timeout;
 
 	session->sampling_mode = sampling_mode;
 	session->sampling_max_value = sampling_max_value;
@@ -610,16 +602,6 @@ static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
 		addr2 = key->src_addr.v4.s_addr;
 		port1 = key->dst_port;
 		port2 = key->src_port;
-	} else {
-		addr1 = key->src_addr.v4.s_addr;
-		addr2 = key->dst_addr.v4.s_addr;
-		if (key->src_port < key->dst_port) {
-			port1 = key->src_port;
-			port2 = key->dst_port;
-		} else {
-			port1 = key->dst_port;
-			port2 = key->src_port;
-		}
 	}
 
 	if (!crc_polynom) {
@@ -634,8 +616,8 @@ static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
 
 		hashcode = addr1 * PRIME;
 		hashcode = (hashcode + addr2) * PRIME;
-		hashcode = (hashcode + port1) * PRIME;
-		hashcode = (hashcode + port2) * PRIME;
+		hashcode = (hashcode + port1) * PRIME2;
+		hashcode = (hashcode + port2) * PRIME2;
 	} else {
 		hashcode = crc(hashcode, (uint8_t *) &port1, sizeof(port1));
 		hashcode = crc(hashcode, (uint8_t *) &port2, sizeof(port2));

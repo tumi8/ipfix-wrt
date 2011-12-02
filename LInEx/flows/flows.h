@@ -65,7 +65,7 @@ typedef struct flow_capture_session_t {
       * Note: A flow may be exported before the timeout expires (e.g. due to
       * protocol semantics such as a TCP FIN or RST).
       */
-    uint16_t export_timeout;
+    uint16_t flow_inactive_timeout;
 
 	/**
 	  * The maximum lifetime of a flow - flows which are older than the
@@ -75,7 +75,7 @@ typedef struct flow_capture_session_t {
 	  * the next time data is sent via IPFIX and not exactly when it reaches
 	  * the specified age.
 	  */
-	uint16_t max_flow_lifetime;
+	uint16_t flow_active_timeout;
 
 	/**
 	  * The associated capture session.
