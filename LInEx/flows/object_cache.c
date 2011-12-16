@@ -2,6 +2,7 @@
 #include "../ipfixlolib/msg.h"
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
 
 struct object_cache_entry {
 	void *data;
@@ -12,7 +13,7 @@ struct object_cache {
 	size_t entry_size;
 	uint16_t first_taken_entry;
 	uint16_t first_free_entry;
-#ifdef DEBUG
+#ifdef OBJECT_CACHE_DEBUG
 	uint64_t malloc_count;
 	uint64_t reuse_count;
 #endif
@@ -37,22 +38,20 @@ struct object_cache *init_object_cache(uint16_t max_entries,
 	cache->max_entries = max_entries;
 	cache->first_taken_entry = 0;
 	cache->first_free_entry = 0;
-#ifdef DEBUG
+#ifdef OBJECT_CACHE_DEBUG
 	cache->malloc_count = 0;
 	cache->reuse_count = 0;
 #endif
 	cache->entry_size = entry_size;
-	cache->entries = (void **) malloc(max_entries * sizeof(void *));
-
-	if (!cache->entries) {
-		free(cache);
-		return NULL;
-	}
-
-	size_t i;
-	for (i = 0; i < max_entries; i++) {
-		void **ptr = cache->entries + i;
-		*ptr = NULL;
+	if (max_entries == 0) {
+		cache->entries = NULL;
+	} else {
+		cache->entries = (void **) malloc(max_entries * sizeof(void *));
+		size_t i;
+		for (i = 0; i < max_entries; i++) {
+			void **ptr = cache->entries + i;
+			*ptr = NULL;
+		}
 	}
 
 	return cache;
@@ -62,7 +61,8 @@ struct object_cache *init_object_cache(uint16_t max_entries,
   * Frees all memory claimed by this object cache.
   */
 void free_object_cache(struct object_cache *cache) {
-	free(cache->entries);
+	if (cache->entries)
+		free(cache->entries);
 	free(cache);
 }
 
@@ -74,19 +74,22 @@ void free_object_cache(struct object_cache *cache) {
   *          allocated.
   */
 void *allocate_object(struct object_cache *cache) {
-	void **entry = cache->entries + cache->first_taken_entry;
-	if (*entry) {
-		void *obj = *entry;
-		*entry = NULL;
-		cache->first_taken_entry =
-				(cache->first_taken_entry + 1) % cache->max_entries;
-#ifdef DEBUG
-		cache->reuse_count++;
+	if (cache->entries != NULL) {
+		void **entry = cache->entries + cache->first_taken_entry;
+		if (*entry) {
+
+			void *obj = *entry;
+			*entry = NULL;
+			cache->first_taken_entry =
+					(cache->first_taken_entry + 1) % cache->max_entries;
+#ifdef OBJECT_CACHE_DEBUG
+			cache->reuse_count = cache->reuse_count + 1;
 #endif
-		return obj;
+			return obj;
+		}
 	}
 
-#ifdef DEBUG
+#ifdef OBJECT_CACHE_DEBUG
 	cache->malloc_count++;
 #endif
 	return malloc(cache->entry_size);
@@ -98,7 +101,8 @@ void *allocate_object(struct object_cache *cache) {
   */
 void release_object(struct object_cache *cache, void *obj) {
 	void **entry = cache->entries + cache->first_free_entry;
-	if (*entry) {
+	if (cache->entries == NULL || *entry != NULL) {
+
 		free(obj);
 		return;
 	}
@@ -109,7 +113,7 @@ void release_object(struct object_cache *cache, void *obj) {
 }
 
 void object_cache_statistics(struct object_cache *cache) {
-	DPRINTF("Malloc count: %d Reuse count: %d",
+	printf("Malloc count: %llu Reuse count: %llu\n",
 			cache->malloc_count,
 			cache->reuse_count);
 }

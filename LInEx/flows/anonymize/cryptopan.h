@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 struct cryptopan {
+	uint8_t initialised;
 	aes_context ctx;
 	uint8_t pad[16];
 };

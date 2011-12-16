@@ -38,8 +38,10 @@
 #include "flows/olsr.h"
 #include "flows/topology_set.h"
 #include "flows/hello_set.h"
+#include "flows/object_cache.h"
 #include "flows/export.h"
 #include "event_loop.h"
+
 
 struct export_record_parameters {
 	ipfix_exporter *exporter;
@@ -67,11 +69,39 @@ struct capture_session *olsr_capture_session = NULL;
 void init_collectors(config_file_descriptor* conf, ipfix_exporter* exporter){
 	list_node* cur;
 
-	ipfix_aux_config_udp aux_config; /* Auxiliary parameter for UDP */
-	aux_config.mtu = 1500;           /* MTU */
+
 	for(cur = conf->collectors->first;cur!=NULL;cur=cur->next){
+
 		collector_descriptor* cur_descriptor = (collector_descriptor*)cur->data;
-		int ret = ipfix_add_collector(exporter, cur_descriptor->ip, cur_descriptor->port, cur_descriptor->transport_protocol, &aux_config);
+		void *aux = NULL;
+		switch (cur_descriptor->transport_protocol) {
+		case UDP: {
+			ipfix_aux_config_udp aux_config; /* Auxiliary parameter for UDP */
+			aux_config.mtu = 1500;           /* MTU */
+			aux = &aux_config;
+			break;
+		}
+#ifdef SUPPORT_DTLS
+		case DTLS_OVER_UDP: {
+			ipfix_aux_config_dtls_over_udp aux_config;
+			aux_config.udp.mtu = 1500;
+			aux_config.dtls.peer_fqdn = cur_descriptor->fqdn;
+			aux_config.max_connection_lifetime = 360;
+			aux = &aux_config;
+			break;
+		}
+		case DTLS_OVER_SCTP: {
+			ipfix_aux_config_dtls_over_sctp aux_config;
+			aux_config.dtls.peer_fqdn = cur_descriptor->fqdn;
+			aux = &aux_config;
+			break;
+		}
+#endif
+		default:
+			break;
+		}
+
+		int ret = ipfix_add_collector(exporter, cur_descriptor->ip, cur_descriptor->port, cur_descriptor->transport_protocol, aux);
 		msg(MSG_INFO, "Added collector %s:%d (return: %d)", cur_descriptor->ip,cur_descriptor->port,  ret);
 	}
 }
@@ -128,6 +158,17 @@ void sigwait_handler(int signal)
 	childpid = -1;
 }
 
+#ifdef OBJECT_CACHE_DEBUG
+void sigterm_handler(int signal)
+{
+
+	object_cache_statistics(flow_session.flow_key_cache);
+	object_cache_statistics(flow_session.flow_info_cache);
+
+	exit(0);
+}
+#endif
+
 /**
  * Test main methode
  */
@@ -141,6 +182,17 @@ int main(int argc, char **argv)
 	if (sigaction(SIGCHLD, &new_sa, NULL) == -1) {
 		THROWEXCEPTION("Could not install signal handler.");
 	}
+
+#ifdef OBJECT_CACHE_DEBUG
+	struct sigaction term;
+
+	term.sa_handler = sigterm_handler;
+	sigemptyset(&term.sa_mask);
+	term.sa_flags |= SA_RESTART;
+
+	sigaction(SIGTERM, &term, 0);
+	sigaction(SIGINT, &term, 0);
+#endif
 
 	//Process command line parameters
 	parse_command_line_parameters(argc,argv);
@@ -163,7 +215,10 @@ int main(int argc, char **argv)
 			THROWEXCEPTION("Failed to initialize compression module.");
 	}
 #endif
-
+#ifdef SUPPORT_DTLS
+	ipfix_set_dtls_certificate(send_exporter, conf->certificate, conf->certificate_key);
+	ipfix_set_ca_locations(send_exporter, conf->ca, conf->ca_path);
+#endif
 	//Add collectors from config file
 	init_collectors(conf,send_exporter);
 
@@ -178,6 +233,7 @@ int main(int argc, char **argv)
 			conf->flow_sampling_polynom)
 		set_sampling_polynom(conf->flow_sampling_polynom);
 
+	msg(MSG_INFO, "Sampling mode is %d and threshold is %d", conf->flow_sampling_mode, conf->flow_sampling_max_value);
 	if (start_flow_capture_session(&flow_session,
 								   conf->flow_inactive_timeout,
 								   conf->flow_active_timeout,
@@ -196,11 +252,16 @@ int main(int argc, char **argv)
 	event_loop_add_timer(120000, (event_timer_callback) &bind_to_interfaces, conf);
 
 #ifdef SUPPORT_ANONYMIZATION
-	if (init_cryptopan(&flow_session.cryptopan,
+	if (conf->anonymization_enabled &&
+			init_cryptopan(&flow_session.cryptopan,
 					   conf->anonymization_key,
 					   conf->anonymization_pad)) {
 		msg(MSG_ERROR, "Failed to initialize CryptoPAN.");
 		return 1;
+	} else if (!conf->anonymization_enabled) {
+		msg(MSG_INFO, "CryptoPAN disabled");
+	} else {
+		msg(MSG_INFO, "CryptoPAN enabled");
 	}
 #endif
 
@@ -236,7 +297,7 @@ int main(int argc, char **argv)
 		flow_session.capture_session,
 		olsr_capture_session
 	};
-	event_loop_add_timer(60000, (void (*) (void *)) &export_capture_statistics, &capture_statistics_param);
+	event_loop_add_timer(10000, (void (*) (void *)) &export_capture_statistics, &capture_statistics_param);
 
 	return event_loop_run();
 }

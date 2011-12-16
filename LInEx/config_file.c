@@ -58,6 +58,7 @@ regex_t regex_flow_sampling;
 regex_t regex_anonymization;
 regex_t regex_export_flow_interval;
 regex_t regex_export_olsr_interval;
+regex_t regex_dtls;
 regex_t regex_odid;
 regex_t regex_xmlfile;
 regex_t regex_xmlpostprocessing;
@@ -67,7 +68,7 @@ config_file_descriptor* current_config_file = NULL;
 record_descriptor* current_record = NULL;
 source_descriptor* current_source = NULL;
 xmlrecord_descriptor* current_xmlrecord = NULL;
-regmatch_t config_buffer[5];
+regmatch_t config_buffer[10];
 
 //Constructor for config file descriptor
 config_file_descriptor* create_config_file_descriptor(){
@@ -87,8 +88,15 @@ config_file_descriptor* create_config_file_descriptor(){
 	current_config_file->flow_sampling_polynom = 0;
 	current_config_file->flow_sampling_max_value = 0;
 #ifdef SUPPORT_ANONYMIZATION
+	current_config_file->anonymization_enabled = 0;
 	memset(current_config_file->anonymization_key, 0, sizeof(current_config_file->anonymization_key));
 	memset(current_config_file->anonymization_pad, 0, sizeof(current_config_file->anonymization_pad));
+#endif
+#ifdef SUPPORT_DTLS
+	current_config_file->certificate = NULL;
+	current_config_file->certificate_key = NULL;
+	current_config_file->ca = NULL;
+	current_config_file->ca_path = NULL;
 #endif
 	current_config_file->export_flow_interval = 60000;
 	current_config_file->export_olsr_interval = 120000;
@@ -100,11 +108,16 @@ config_file_descriptor* create_config_file_descriptor(){
 
 
 //Constructor for collector descriptor
-collector_descriptor* create_collector_descriptor(char* ip, int port, enum ipfix_transport_protocol transport_protocol){
+collector_descriptor* create_collector_descriptor(char* ip, int port,
+												  enum ipfix_transport_protocol transport_protocol,
+												  char *fqdn){
 	collector_descriptor* result = (collector_descriptor*) malloc(sizeof(collector_descriptor));
 	result->ip = ip;
 	result->port = port;
 	result->transport_protocol = transport_protocol;
+#ifdef SUPPORT_DTLS
+	result->fqdn = fqdn;
+#endif
 	list_insert(current_config_file->collectors, result);
 	return result;
 }
@@ -166,19 +179,20 @@ void init_config_regex(){
 	regcomp(&regex_source_selector,"^[ \t]*(FILE|COMMAND).*$",REG_EXTENDED);
 	regcomp(&regex_source_suffix,"^[ \t]*([A-Za-z0-9/_-]+|\"([^\"]*)\")[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*\"(.*)\"[ \t\n]*",REG_EXTENDED);
 	regcomp(&regex_rule,"^[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t]*,[ \t]*([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})([ \t]+(TCP|UDP|SCTP))?[ \t\n]*$",REG_EXTENDED);
+	regcomp(&regex_collector,"^[ \t]*COLLECTOR[ \t]+([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})[ \t]*\\:[ \t]*([0-9]{1,5})([ \t]+(TCP|UDP|SCTP|DTLS_OVER_UDP|DTLS_OVER_SCTP))?([ \t]+([^ \t\n\r]+))?[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interval,"^[ \t]*INTERVAL[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_interface,"^[ \t]*INTERFACE[ \t]+([A-Za-z0-9.-]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_compression,"^[ \t]*COMPRESSION[ \t]+([A-Za-z0-9.-]+)([ \t]+(.+))?[ \t\n]*$",REG_EXTENDED);
-	// Parameters for flow generation - FLOW_PARAMS <inactivity timeout> <maximum capture length> <object buffer length>
 	regcomp(&regex_flow_params, "^[ \t]*FLOW_PARAMS[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
-	// Parameters for flow sampling: FLOW_SAMPLING <mode> <acceptance end range (inclusive)> <polynom in least-significant bit first if mode is CRC32>
 	regcomp(&regex_flow_sampling, "^[ \t]*FLOW_SAMPLING[ \t]+(CRC32|BPF)[ \t]+([0-9]+)[ \t]*(0x[0-9a-fA-F]+|[0-9]+)?[ \t\n]*$", REG_EXTENDED);
 #ifdef SUPPORT_ANONYMIZATION
 	regcomp(&regex_anonymization,"^[ \t]*ANONYMIZATION[ \t]+([A-Fa-f0-9]+)[ \t]+([A-Fa-f0-9]+)[ \t\n]*$", REG_EXTENDED);
 #endif
 	regcomp(&regex_export_flow_interval, "^[ \t]*EXPORT_FLOW_INTERVAL[ \t]+([0-9]+)", REG_EXTENDED);
 	regcomp(&regex_export_olsr_interval, "^[ \t]*EXPORT_OLSR_INTERVAL[ \t]+([0-9]+)", REG_EXTENDED);
+#ifdef SUPPORT_DTLS
+	regcomp(&regex_dtls, "^[ \t]*DTLS[ \t]+([^ ]+)[ \t]+([^ ]+)[ \t]+([^ ]+)[ \t]+([^ ]+)[ \t\n]*$", REG_EXTENDED);
+#endif
 	regcomp(&regex_odid,"^[ \t]*ODID[ \t]+([0-9]+)[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlfile,"^[ \t]*XMLFILE[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
 	regcomp(&regex_xmlpostprocessing,"^[ \t]*XMLPOSTPROCESSING[ \t]+\"([^\"]+)\"[ \t\n]*$",REG_EXTENDED);
@@ -205,6 +219,9 @@ void deinit_config_regex() {
 #endif
 	regfree(&regex_export_flow_interval);
 	regfree(&regex_export_olsr_interval);
+#ifdef SUPPORT_DTLS
+	regfree(&regex_dtls);
+#endif
 	regfree(&regex_odid);
 	regfree(&regex_xmlfile);
 	regfree(&regex_xmlpostprocessing);
@@ -379,22 +396,29 @@ int process_record_line(char* line, int in_line){
  * <in_line> is the number of that line
  */
 int process_collector_line(char* line, int in_line){
-	if(regexec(&regex_collector,line,5,config_buffer,0)){
+	if(regexec(&regex_collector,line,7,config_buffer,0)){
 		THROWEXCEPTION("COLLECTOR line %d in config file is malformed:\n%s",in_line,line);
 	}
 
 	char* ip = extract_string_from_regmatch(&config_buffer[1],line);
 	int port = extract_uint_from_regmatch(&config_buffer[2],line);
 	char* transport_protocol_str = extract_string_from_regmatch(&config_buffer[4], line);
+	char *fqdn = extract_string_from_regmatch(&config_buffer[6], line);
 	enum ipfix_transport_protocol transport_protocol = UDP;
 
 	if (!strcmp(transport_protocol_str, "TCP")) {
 		transport_protocol = TCP;
 	} else if (!strcmp(transport_protocol_str, "SCTP")) {
 		transport_protocol = SCTP;
+	} else if (!strcmp(transport_protocol_str, "UDP")) {
+		transport_protocol = UDP;
+	} else if (!strcmp(transport_protocol_str, "DTLS_OVER_UDP")) {
+		transport_protocol = DTLS_OVER_UDP;
+	} else if (!strcmp(transport_protocol_str, "DTLS_OVER_SCTP")) {
+		transport_protocol = DTLS_OVER_SCTP;
 	}
 
-	create_collector_descriptor(ip,port,transport_protocol);
+	create_collector_descriptor(ip,port,transport_protocol, fqdn);
 	return 1;
 }
 
@@ -537,6 +561,8 @@ int process_anonymization_line(char* line, int in_line){
 	free(key);
 	free(pad);
 
+	current_config_file->anonymization_enabled = 1;
+
 	return 1;
 }
 #endif
@@ -568,6 +594,24 @@ int process_export_olsr_interval_line(char* line, int in_line){
 
 	current_config_file->export_olsr_interval = extract_uint_from_regmatch(&config_buffer[1], line) * 1000;
 
+	return 1;
+}
+
+/**
+ * Processes the interface line in the config file
+ * <line> is the content of that line
+ * <in_line> is the number of that line
+ */
+int process_dtls_line(char* line, int in_line){
+	if(regexec(&regex_dtls,line,5,config_buffer,0)){
+		THROWEXCEPTION("DTLS line %d in config file is malformed:\n%s",in_line,line);
+	}
+#ifdef SUPPORT_DTLS
+	current_config_file->certificate = extract_string_from_regmatch(&config_buffer[1], line);
+	current_config_file->certificate_key = extract_string_from_regmatch(&config_buffer[2], line);
+	current_config_file->ca = extract_string_from_regmatch(&config_buffer[3], line);
+	current_config_file->ca_path = extract_string_from_regmatch(&config_buffer[4], line);
+#endif
 	return 1;
 }
 
@@ -667,7 +711,6 @@ int process_xml_rule_line(char* line, int in_line){
  * <in_line> is the number of that line
  */
 int process_config_line(char* line, int in_line){
-
 	//Skip empty lines
 	if(!regexec(&regex_empty_line,line,2,config_buffer,0)){
 		return 0;
@@ -703,6 +746,10 @@ int process_config_line(char* line, int in_line){
 				process_export_flow_interval_line(line, in_line);
 			} else if (!regexec(&regex_export_olsr_interval, line, 2, config_buffer, 0)) {
 				process_export_olsr_interval_line(line, in_line);
+#ifdef SUPPORT_DTLS
+			} else if (!regexec(&regex_dtls, line, 5, config_buffer, 0)) {
+				process_dtls_line(line, in_line);
+#endif
 			} else if(!regexec(&regex_odid,line,2,config_buffer,0)) {
 				process_odid_line(line, in_line);
 			} else if(!regexec(&regex_xmlrecord_selector,line,2,config_buffer,0)) {

@@ -22,6 +22,9 @@
 #include "anonymize/cryptopan.h"
 #endif
 
+// Total number of pages to reserve for flow capturing
+#define PACKET_MMAP_FLOW_BLOCK_NR 40
+
 struct flow_key_t;
 struct flow_info_t;
 

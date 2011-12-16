@@ -22,7 +22,10 @@
 #else
 #include <fcntl.h>
 #endif
-
+#ifdef __mips__
+#include <sys/cachectl.h>
+#include <asm/cachectl.h>
+#endif
 static int setup_interface(const char *device_name,
 						   bool enable_promisc,
 						   int *if_index,
@@ -100,7 +103,8 @@ void free_capture_session(struct capture_session *session) {
   */
 struct capture_info *start_capture(struct capture_session *session,
 								   const char *interface, size_t snapshot_len,
-								   struct sock_fprog *filter) {
+								   struct sock_fprog *filter,
+								   uint32_t buffer_size) {
 	if (session->interface_count >= MAXIMUM_INTERFACE_COUNT) {
 		msg(MSG_ERROR, "Maximum interface count (%d) for this session has been reached.", MAXIMUM_INTERFACE_COUNT);
 		return NULL;
@@ -128,9 +132,9 @@ struct capture_info *start_capture(struct capture_session *session,
 #ifdef SUPPORT_PACKET_MMAP
 	struct tpacket_req req = {
 		PAGE_SIZE, // tp_block_size
-		PACKET_MMAP_BLOCK_NR, // tp_block_nr:
+		buffer_size, // tp_block_nr:
 		snapshot_len, // tp_frame_size
-		PACKET_MMAP_BLOCK_NR * (PAGE_SIZE / snapshot_len) // tp_frame_nr
+		buffer_size * (PAGE_SIZE / snapshot_len) // tp_frame_nr
 	};
 
 	if (setsockopt(fd, SOL_PACKET, PACKET_RX_RING, (void *) &req, sizeof(req))) {
@@ -149,10 +153,15 @@ struct capture_info *start_capture(struct capture_session *session,
 		return NULL;
 	}
 
-	info->current_frame_nr = 0;
+	// Attempt to clear buffer
+	memset(buffer, 0, req.tp_block_size * req.tp_block_nr);
+
+
 	info->frame_nr = req.tp_frame_nr;
 	info->frame_size = req.tp_frame_size;
 	info->buffer = buffer;
+	info->buffer_end = buffer + (info->frame_nr * info->frame_size);
+	info->current_frame = buffer;
 #else
 	if (fcntl(fd, F_SETFL, O_NONBLOCK)) {
 		msg(MSG_ERROR, "Failed to put raw socket in non-blocking mode.");
@@ -160,7 +169,33 @@ struct capture_info *start_capture(struct capture_session *session,
 		free(info);
 		return NULL;
 	}
+	int rcvbuf_size = buffer_size * 4096;
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size, sizeof(rcvbuf_size)) == -1) {
+		msg(MSG_ERROR, "Failed to set receive buffer size.");
+		close(fd);
+		free(info);
+		return NULL;
+	}
+	msg(MSG_INFO, "Using receive buffer of %d bytes.", rcvbuf_size);
 #endif
+
+	// Clear packet statistics
+	struct tpacket_stats kstats;
+	socklen_t kstats_len = sizeof(kstats);
+	if (getsockopt(info->fd, SOL_PACKET, PACKET_STATISTICS,
+				   &kstats, &kstats_len)) {
+
+	}
+
+	if (filter->filter != NULL) {
+		if (setsockopt(fd, SOL_SOCKET,  SO_ATTACH_FILTER, filter, sizeof(struct sock_fprog)) == -1) {
+			msg(MSG_ERROR, "Failed to attach filter to file descriptor (%s)", strerror(errno));
+			close(fd);
+			free(info);
+			return NULL;
+		}
+	}
+
 	union {
 		struct sockaddr_ll ll;
 		struct sockaddr addr;
@@ -181,15 +216,6 @@ struct capture_info *start_capture(struct capture_session *session,
 		return NULL;
 	}
 
-	if (filter->filter != NULL) {
-		if (setsockopt(fd, SOL_SOCKET,  SO_ATTACH_FILTER, filter, sizeof(struct sock_fprog)) == -1) {
-			msg(MSG_ERROR, "Failed to attach filter to file descriptor (%s)", strerror(errno));
-			close(fd);
-			free(info);
-			return NULL;
-		}
-	}
-
 #ifndef SUPPORT_PACKET_MMAP
 	// Create or reallocate packet buffer
 	if (packet_buffer == NULL || packet_buffer_size < snapshot_len) {
@@ -208,6 +234,7 @@ struct capture_info *start_capture(struct capture_session *session,
 
 		packet_buffer_size = snapshot_len;
 	}
+	info->snapshot_len = snapshot_len;
 #endif
 
 	info->fd = fd;
@@ -238,33 +265,45 @@ void stop_capture(struct capture_info *info) {
   * \returns A pointer to the beginning of the packet or NULL if an error
   *          occured or no data was ready.
   */
-uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len, bool first_call) {
+uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len, struct timeval *tp, bool first_call) {
 #ifdef SUPPORT_PACKET_MMAP
-	uint16_t start_frame_nr = info->current_frame_nr;
-	uint8_t *frame = info->buffer + (info->frame_size * info->current_frame_nr);
+	uint8_t *frame = info->current_frame;
 	uint8_t *const start_frame = frame;
 	struct tpacket_hdr *hdr = (struct tpacket_hdr *) frame;
 
 	if (!hdr->tp_status && !first_call)
 		return NULL;
 
-	while(!hdr->tp_status) {
-		info->current_frame_nr = (info->current_frame_nr + 1) % info->frame_nr;
-		frame = info->buffer
-				+ (info->frame_size * info->current_frame_nr);
-		hdr = (struct tpacket_hdr *) frame;
+	if (!hdr->tp_status) {
+		while (!hdr->tp_status) {
+			frame = frame + info->frame_size;
+			if (frame >= info->buffer_end)
+				frame = info->buffer;
+			if (info->current_frame >= info->buffer_end)
+				info->current_frame = info->buffer;
 
-		if (frame == start_frame) {
-			return NULL;
+			hdr = (struct tpacket_hdr *) frame;
+
+			if (frame == start_frame) {
+				return NULL;
+			}
 		}
+
+		info->current_frame = frame;
 	}
 
 	if (frame != start_frame) {
-		msg(MSG_INFO, "Frame != Start frame new index is: %d started at: %d First call: %d", info->current_frame_nr, start_frame_nr, first_call);
+		msg(MSG_INFO, "Frame != Start frame new index is: %d started at: %d First call: %d", (info->current_frame - info->buffer) / info->frame_size, (start_frame - info->buffer) / info->frame_size, first_call);
 	}
 
 	*len = hdr->tp_snaplen;
 	*orig_len = hdr->tp_len;
+
+	// Set time
+	if (tp != NULL) {
+		tp->tv_sec = hdr->tp_sec;
+		tp->tv_usec = hdr->tp_usec;
+	}
 
 	return (frame + hdr->tp_mac);
 #else
@@ -287,6 +326,8 @@ uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len
 	} else if (len == 0)
 		return NULL;
 
+	if (tp != NULL)
+		gettimeofday(tp, NULL);
 	return packet_buffer;
 #endif
 }
@@ -297,13 +338,14 @@ uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len
   */
 void capture_packet_done(struct capture_info *info) {
 #ifdef SUPPORT_PACKET_MMAP
-	uint8_t *frame = info->buffer + (info->frame_size * info->current_frame_nr);
-	struct tpacket_hdr *hdr = (struct tpacket_hdr *) frame;
+	struct tpacket_hdr *hdr = (struct tpacket_hdr *) info->current_frame;
 
 	hdr->tp_status = 0;
 
 	// Advance to next frame
-	info->current_frame_nr = (info->current_frame_nr + 1) % info->frame_nr;
+	info->current_frame += info->frame_size;
+	if (info->current_frame >= info->buffer_end)
+		info->current_frame = info->buffer;
 #endif
 }
 

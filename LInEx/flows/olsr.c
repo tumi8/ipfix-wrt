@@ -121,7 +121,7 @@ struct capture_info *olsr_add_capture_interface(struct capture_session *session,
 
 	close(fd);
 
-	struct capture_info *info = start_capture(session, interface, 2048, &filter);
+	struct capture_info *info = start_capture(session, interface, 2048, &filter, PACKET_MMAP_OLSR_BLOCK_NR);
 	if (!info)
 		return NULL;
 
@@ -143,7 +143,7 @@ void olsr_callback(int fd, struct olsr_callback_param *param) {
 	uint8_t *buffer;
 	bool first_call = true;
 
-	while ((buffer = capture_packet(param->info, &len, &orig_len, first_call))) {
+	while ((buffer = capture_packet(param->info, &len, &orig_len, NULL, first_call))) {
 		struct pktinfo pkt = { buffer, buffer + len, buffer, orig_len };
 
 		parse_packet_header(&pkt);

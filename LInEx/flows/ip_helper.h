@@ -13,6 +13,7 @@ struct pktinfo {
 	const uint8_t *const end_data;
 	const uint8_t *data;
 	const uint16_t orig_len;
+	const struct timeval *tv;
 };
 
 typedef enum transport_protocol_t {

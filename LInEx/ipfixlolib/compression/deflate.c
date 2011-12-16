@@ -28,7 +28,8 @@ int ipfix_compress(ipfix_exporter *exporter) {
 	strm.zfree = Z_NULL;
 	strm.opaque = Z_NULL;
 
-	ret = deflateInit(&strm, deflate_compression_level);
+	// windowSize of -15 ensures that no additional header is added
+	ret = deflateInit2(&strm, deflate_compression_level, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY);
 	if (ret != Z_OK) {
 		return -1;
 	}

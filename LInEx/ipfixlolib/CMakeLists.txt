@@ -36,7 +36,7 @@ IF(WITH_DTLS)
 								IMPORTED_LOCATION ${WITH_STATIC_OPENSSL}/libcrypto.a)
 		TARGET_LINK_LIBRARIES(ipfixlolib openssl_support ssl crypto)
 	ELSE(WITH_STATIC_OPENSSL)
-		TARGET_LINK_LIBRARIES(ipfixlolib openssl_support ssl)
+		TARGET_LINK_LIBRARIES(ipfixlolib openssl_support ssl z)
 	ENDIF(WITH_STATIC_OPENSSL)
 ENDIF(WITH_DTLS)
 

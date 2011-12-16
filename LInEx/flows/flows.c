@@ -28,12 +28,12 @@
 uint32_t crc_polynom = 0;
 
 static uint32_t crc(uint32_t seed, uint8_t *buf, size_t len);
-static int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt);
+static inline int parse_ipv4(flow_capture_session *session, struct pktinfo *pkt);
 #ifdef SUPPORT_IPV6
-static int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt);
+static inline int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt);
 #endif
-static int parse_udp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow);
-static int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow);
+static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow);
+static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, flow_key *flow);
 
 struct flow_capture_callback_param {
 	flow_capture_session *session;
@@ -63,7 +63,11 @@ static const struct sock_filter egress_filter[] = {
   */
 static const struct sock_filter hash_filter[] = {
 #define PRIME 86477
-#define PRIME2 1500450271
+#define PRIME2 981839857
+#define SRC_ADDR 0x0
+#define DST_ADDR 0x1
+#define SRC_PORT 0x2
+#define DST_PORT 0x3
 	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0x2), // Load ethernet dst MAC
 	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xbeefaaaa, 0, 45), // Check if matches sentinel
 	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 0x0), // Load ethernet dst MAC 2nd
@@ -73,45 +77,45 @@ static const struct sock_filter hash_filter[] = {
 	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 20), // Load fragmentation info
 	BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, 0x1fff, 39, 0), // Check if it is the first fragment - if not reject
 	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 26), // Load source address
-	BPF_STMT(BPF_ST, 0), // Store in scratch memory 0x0
+	BPF_STMT(BPF_ST, SRC_ADDR), // Store in scratch memory 0x0
 	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 30), // Load destination address
-	BPF_STMT(BPF_ST, 1), // Store in scratch memory 0x1
+	BPF_STMT(BPF_ST, DST_ADDR), // Store in scratch memory 0x1
 	BPF_STMT(BPF_LDX | BPF_B | BPF_MSH, 14), // Set index register to beginning of payload
 	BPF_STMT(BPF_LD | BPF_B | BPF_ABS, 23), // Load protocol
 	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0x11, 1, 0), // Check if UDP
 	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0x6, 0, 31), // Check if TCP
 	BPF_STMT(BPF_LD | BPF_H | BPF_IND, 14),
-	BPF_STMT(BPF_ST, 0x2), // Store source port in scratch memory 0x2
+	BPF_STMT(BPF_ST, SRC_PORT), // Store source port in scratch memory 0x2
 	BPF_STMT(BPF_LD | BPF_H | BPF_IND, 16),
-	BPF_STMT(BPF_ST, 0x3), // Store destination port in scratch memory 0x3
-	BPF_STMT(BPF_LD | BPF_MEM, 0x0), // Load source address
-	BPF_STMT(BPF_LDX | BPF_MEM, 0x1), // Load destination address
+	BPF_STMT(BPF_ST, DST_PORT), // Store destination port in scratch memory 0x3
+	BPF_STMT(BPF_LD | BPF_W | BPF_MEM, SRC_ADDR), // Load source address
+	BPF_STMT(BPF_LDX | BPF_W | BPF_MEM, DST_ADDR), // Load destination address
 	BPF_JUMP(BPF_JMP | BPF_JGE | BPF_X, 0x0, 11, 0),
-	BPF_STMT(BPF_LD | BPF_MEM, 0x0), // Load source address
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
+	BPF_STMT(BPF_LD | BPF_W | BPF_MEM, SRC_ADDR), // Load source address
+	BPF_STMT(BPF_ALU | BPF_MUL | BPF_K, PRIME),
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0), // Add destination address
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
-	BPF_STMT(BPF_LDX | BPF_MEM, 0x2), // Load source port
+	BPF_STMT(BPF_ALU | BPF_MUL | BPF_K, PRIME),
+	BPF_STMT(BPF_LDX | BPF_MEM, SRC_PORT), // Load source port
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME2),
-	BPF_STMT(BPF_LDX | BPF_MEM, 0x3), // Load destination port
+	BPF_STMT(BPF_ALU | BPF_MUL | BPF_K, PRIME2),
+	BPF_STMT(BPF_LDX | BPF_MEM, DST_PORT), // Load destination port
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME2),
+	BPF_STMT(BPF_ALU | BPF_MUL | BPF_K, PRIME2),
 	BPF_STMT(BPF_JMP | BPF_JA, 11),
 	// SWAPPED begins here
-	BPF_STMT(BPF_LD | BPF_MEM, 0x1), // Load destination address
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
-	BPF_STMT(BPF_LDX | BPF_MEM, 0x0), // Load source address
+	BPF_STMT(BPF_LD | BPF_W | BPF_MEM, DST_ADDR), // Load destination address
+	BPF_STMT(BPF_ALU | BPF_MUL | BPF_K, PRIME),
+	BPF_STMT(BPF_LDX | BPF_W | BPF_MEM, SRC_ADDR), // Load source address
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0), // Add source address
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME),
-	BPF_STMT(BPF_LDX | BPF_MEM, 0x3), // Load destination port
+	BPF_STMT(BPF_ALU | BPF_MUL | BPF_K, PRIME),
+	BPF_STMT(BPF_LDX | BPF_W | BPF_MEM, DST_PORT), // Load destination port
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME2),
-	BPF_STMT(BPF_LDX | BPF_MEM, 0x2), // Load source port
+	BPF_STMT(BPF_ALU | BPF_MUL | BPF_K, PRIME2),
+	BPF_STMT(BPF_LDX | BPF_W | BPF_MEM, SRC_PORT), // Load source port
 	BPF_STMT(BPF_ALU | BPF_ADD | BPF_X, 0x0),
-	BPF_STMT(BPF_ALU | BPF_MUL, PRIME2),
+	BPF_STMT(BPF_ALU | BPF_MUL | BPF_K, PRIME2),
 	// RETURN_VALUE begins here
-	BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0xdeadbeef, 0, 0),
+	BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0xdeadbeef, 1, 0),
 	BPF_STMT(BPF_RET | BPF_K, 0xffff),
 	// REJECT begins here
 	BPF_STMT(BPF_RET | BPF_K, 0x0)
@@ -134,7 +138,9 @@ int start_flow_capture_session(flow_capture_session *session,
 	session->capture_session = NULL;
 	session->flow_key_cache = NULL;
 	session->flow_info_cache = NULL;
-
+#ifdef SUPPORT_ANONYMIZATION
+	session->cryptopan.initialised = 0;
+#endif
 	session->ipv4_flow_database = kh_init(1);
 	if (!session->ipv4_flow_database)
 		goto error;
@@ -259,7 +265,7 @@ int add_interface(flow_capture_session *session, char *device_name, bool enable_
 
 	struct sock_fprog filter = build_filter(session, &hwaddr);
 	struct capture_info *info = start_capture(session->capture_session,
-											  device_name, 128, &filter);
+											  device_name, 128, &filter, PACKET_MMAP_FLOW_BLOCK_NR);
 	free(filter.filter);
 	if (!info) {
 		return -1;
@@ -397,10 +403,12 @@ static inline int parse_ipv6(flow_capture_session *session, struct pktinfo *pkt)
 
 static inline bool include_hash_code(flow_capture_session *session,
 									 uint32_t hash_code) {
+
 	if (session->sampling_mode != CRC32SamplingMode)
 		return true;
 
-	DPRINTF("Hashcode: %u Accepted: %u Dropped: %u", hash_code, session->sampling_accepted_packets, session->sampling_dropped_packets);
+
+	DPRINTF("Max: %u Hashcode: %u Accepted: %u Dropped: %u",  session->sampling_max_value, hash_code, session->sampling_accepted_packets, session->sampling_dropped_packets);
 
 	if (hash_code > session->sampling_max_value) {
 		session->sampling_dropped_packets++;
@@ -469,7 +477,7 @@ static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, 
             return -1;
         }
 
-		info->first_packet_timestamp = time(NULL);
+		info->first_packet_timestamp = pkt->tv->tv_sec;
 		info->total_bytes = 0;
 
 		// Create a copy of the key on the heap on the first insertion
@@ -483,7 +491,7 @@ static inline int parse_udp(flow_capture_session *session, struct pktinfo *pkt, 
 		info = (flow_info *) kh_value(flow_database, k);
     }
 
-    info->last_packet_timestamp = time(NULL);
+	info->last_packet_timestamp = pkt->tv->tv_sec;
 	info->total_bytes += pkt->orig_len;
 
     return 0;
@@ -544,7 +552,7 @@ static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, 
             return -1;
         }
 
-        info->first_packet_timestamp = time(NULL);
+		info->first_packet_timestamp = pkt->tv->tv_sec;
 		info->total_bytes = 0;
 
 		// Create a copy of the key on the heap on the first insertion
@@ -556,11 +564,11 @@ static inline int parse_tcp(flow_capture_session *session, struct pktinfo *pkt, 
 		kh_value(flow_database, k) = info;
 
 
-    } else {
+	} else {
 		info = (flow_info *) kh_value(flow_database, k);
     }
 
-    info->last_packet_timestamp = time(NULL);
+	info->last_packet_timestamp = pkt->tv->tv_sec;
 	info->total_bytes += pkt->orig_len;
 
     return 0;
@@ -570,10 +578,11 @@ void capture_callback(int fd, struct flow_capture_callback_param *param) {
 	size_t len;
 	size_t orig_len;
 	bool first_call = true;
+	struct timeval tv;
 	uint8_t *buffer;
 
-	while ((buffer = capture_packet(param->info, &len, &orig_len, first_call))) {
-		struct pktinfo pkt = { buffer, buffer + len, buffer, orig_len };
+	while ((buffer = capture_packet(param->info, &len, &orig_len, &tv, first_call))) {
+		struct pktinfo pkt = { buffer, buffer + len, buffer, orig_len, &tv };
 		parse_ethernet(param->session, &pkt);
 
 		capture_packet_done(param->info);
@@ -610,9 +619,10 @@ static uint32_t flow_key_hash_code_ipv4(flow_key *key, uint32_t hashcode) {
 		  should be checked (it converts to host endianess):
 		hashcode = ntohl(addr1) * PRIME;
 		hashcode = (hashcode + ntohl(addr2)) * PRIME;
-		hashcode = (hashcode + ntohs(port1)) * PRIME;
-		hashcode = (hashcode + ntohs(port2)) * PRIME;
+		hashcode = (hashcode + ntohs(port1)) * PRIME2;
+		hashcode = (hashcode + ntohs(port2)) * PRIME2;
 		*/
+
 
 		hashcode = addr1 * PRIME;
 		hashcode = (hashcode + addr2) * PRIME;

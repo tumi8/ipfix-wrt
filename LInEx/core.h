@@ -106,11 +106,18 @@ typedef struct{
 	uint32_t flow_sampling_polynom;
 	uint32_t flow_sampling_max_value;
 #ifdef SUPPORT_ANONYMIZATION
+	uint8_t anonymization_enabled;
 	uint8_t anonymization_key[16];
 	uint8_t anonymization_pad[16];
 #endif
 	uint32_t export_flow_interval;
 	uint32_t export_olsr_interval;
+#ifdef SUPPORT_DTLS
+	char *certificate;
+	char *certificate_key;
+	char *ca;
+	char *ca_path;
+#endif
 } config_file_descriptor;
 
 /**
@@ -120,6 +127,9 @@ typedef struct{
 	char* ip;
 	uint16_t port;
 	enum ipfix_transport_protocol transport_protocol;
+#ifdef SUPPORT_DTLS
+	char *fqdn;
+#endif
 } collector_descriptor;
 
 

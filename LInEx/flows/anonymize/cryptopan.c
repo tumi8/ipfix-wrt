@@ -5,7 +5,7 @@ int init_cryptopan(struct cryptopan *state, uint8_t key[16], uint8_t pad[16]) {
 		return -1;
 
 	aes_crypt_ecb(&state->ctx, AES_ENCRYPT, pad, state->pad);
-
+	state->initialised = 1;
 	return 0;
 }
 

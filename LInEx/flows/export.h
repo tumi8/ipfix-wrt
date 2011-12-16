@@ -31,22 +31,22 @@ enum olsr_ipfix_type {
 };
 
 enum olsr_template_id {
-	BaseTemplate=1,
-	NodeTemplateIPv4=2,
-	TargetHostTemplateIPv4=3,
-	NeighborHostTemplateIPv4=4,
-	HNATemplateIPv4=5,
-	MIDTemplateIPv4=6,
+	BaseTemplate=256,
+	NodeTemplateIPv4=257,
+	TargetHostTemplateIPv4=258,
+	NeighborHostTemplateIPv4=259,
+	HNATemplateIPv4=260,
+	MIDTemplateIPv4=261,
 #ifdef SUPPORT_IPV6
-	NodeTemplateIPv6=7,
-	TargetHostTemplateIPv6=8,
-	NeighborHostTemplateIPv6=9,
-	HNATemplateIPv6=10,
-	MIDTemplateIPv6=11,
-	FlowTemplateIPv6=12,
+	NodeTemplateIPv6=262,
+	TargetHostTemplateIPv6=263,
+	NeighborHostTemplateIPv6=264,
+	HNATemplateIPv6=265,
+	MIDTemplateIPv6=266,
+	FlowTemplateIPv6=267,
 #endif
-	FlowTemplateIPv4=13,
-	CaptureStatisticsTemplate=14,
+	FlowTemplateIPv4=268,
+	CaptureStatisticsTemplate=269,
 };
 
 struct olsr_template_field {

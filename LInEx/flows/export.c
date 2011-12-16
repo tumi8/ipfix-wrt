@@ -804,10 +804,6 @@ void export_flows(struct export_flow_parameter *param) {
 						 FlowTemplateIPv6,
 						 FLOW_TEMPLATE_IPV6_LEN);
 #endif
-#ifdef DEBUG
-	object_cache_statistics(session->flow_key_cache);
-	object_cache_statistics(session->flow_info_cache);
-#endif
 }
 
 static void export_flow_database(khash_t(1) *flow_database,
@@ -863,7 +859,7 @@ static void export_flow_database(khash_t(1) *flow_database,
 		}
 
 #ifdef SUPPORT_ANONYMIZATION
-		if (key->protocol == IPv4) {
+		if (key->protocol == IPv4 && session->cryptopan.initialised) {
 			key->src_addr.v4.s_addr = anonymize_ipv4(&session->cryptopan,
 													 key->src_addr.v4.s_addr);
 			key->dst_addr.v4.s_addr = anonymize_ipv4(&session->cryptopan,

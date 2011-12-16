@@ -63,30 +63,26 @@ void msg_openssl_errors(void) {
 }
 
 void msg_openssl_return_code(int level, const char *fn, int ret, int error) {
-	/*
-    std::ostringstream oss;
-    oss << fn << " returned: " << ret;
+
     if (ret<=0) {
-	oss << ", error: ";
 	unsigned int i;
 	int found=0;
 	for(i=0;i < sizeof(sslerrors) / sizeof(struct sslerror);i++) {
 	    if (sslerrors[i].code==error) {
-		oss << sslerrors[i].str;
+		msg(level, sslerrors[i].str);
 		found=1;
 		break;
 	    }
 	}
 	if (!found) {
-	    oss << error;
+		msg(level, error);
 	}
 	if (error == SSL_ERROR_SYSCALL && ret==-1)
-	    oss << ", errno: " << strerror(errno);
+		msg(level, strerror(errno));
     }
-    msg(level,oss.str().c_str());
     msg_openssl_errors();
-	*/
-	msg(level, "%s returned %d", fn, ret);
+
+	msg(level, "%s returned %d (errno: %d)", fn, ret, errno);
 	msg_openssl_errors();
 }
 

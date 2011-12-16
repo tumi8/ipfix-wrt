@@ -3462,9 +3462,10 @@ int ipfix_set_dtls_certificate(ipfix_exporter *exporter,
 	msg(MSG_ERROR, "ipfix_set_dtls_certificate called with bad parameters.");
 	return -1;
     }
-    exporter->certificate_chain_file = strdup(certificate_chain_file);
+	if (certificate_chain_file)
+		exporter->certificate_chain_file = strdup(certificate_chain_file);
     if (private_key_file) {
-	exporter->private_key_file = strdup(private_key_file);
+		exporter->private_key_file = strdup(private_key_file);
     }
     return 0;
 #else /* SUPPORT_DTLS */

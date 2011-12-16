@@ -4,12 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <net/if.h>
+#include <sys/time.h>
 #include <stdbool.h>
-
-#ifdef SUPPORT_PACKET_MMAP
-// TODO - Experiment which value fits best
-#define PACKET_MMAP_BLOCK_NR 16
-#endif
 
 #define MAXIMUM_INTERFACE_COUNT 2
 
@@ -24,13 +20,13 @@ struct capture_info {
 	char interface_name[IFNAMSIZ];
 #ifdef SUPPORT_PACKET_MMAP
 	/**
+	  * Current frame.
+	  */
+	uint8_t *current_frame;
+	/**
 	  * Total number of frames which the buffer can hold.
 	  */
 	uint16_t frame_nr;
-	/**
-	  * Current frame number.
-	  */
-	uint16_t current_frame_nr;
 	/**
 	  * Size of a single frame in the buffer.
 	  */
@@ -39,6 +35,11 @@ struct capture_info {
 	  * Pointer to buffer.
 	  */
 	uint8_t *buffer;
+
+	/**
+	  * Pointer to end of buffer.
+	  */
+	uint8_t *buffer_end;
 #else
 	/**
 	  * The number of bytes which should be captured.
@@ -73,9 +74,10 @@ void remove_capture_interface(struct capture_session *session,
 void free_capture_session(struct capture_session *session);
 struct capture_info *start_capture(struct capture_session *session,
 								   const char *interface, size_t snapshot_len,
-								   struct sock_fprog *filter);
+								   struct sock_fprog *filter,
+								   uint32_t buffer_size);
 void stop_capture(struct capture_info *info);
-uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len, bool first_call);
+uint8_t *capture_packet(struct capture_info *info, size_t *len, size_t *orig_len, struct timeval *tp, bool first_call);
 void capture_packet_done(struct capture_info *info);
 int capture_statistics(const struct capture_info *info,
 					   struct capture_statistics *statistics);
